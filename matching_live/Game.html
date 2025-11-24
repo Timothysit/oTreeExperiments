@@ -1,0 +1,155 @@
+{{ block title }}{{ endblock }}
+
+{{ block content }}
+
+<style>
+  body {
+    font-size: 22px;           /* overall bigger text */
+  }
+
+  #game-area {
+    margin-top: 5rem;
+  }
+
+  #status-text {
+    font-size: 2rem;          /* big “Wait…” / feedback text */
+    font-weight: 600;
+  }
+
+  .big-button {
+    font-size: 1.8rem;
+    padding: 1.2rem 3rem;     /* taller & wider buttons */
+  }
+
+  #intro-overlay p {
+    font-size: 1.4rem;
+    line-height: 1.6;
+  }
+</style>
+
+<!-- Intro overlay -->
+<div id="intro-overlay"
+     style="position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+            background-color:rgba(255,255,255,0.95); cursor:pointer; z-index:10;">
+  <div style="max-width:600px; text-align:center;">
+    <p>
+      In this game, you have two options, either left or right. On each turn,
+      you will select one of the options and be told how much you were rewarded.
+      At the end of the game, you will be paid based on your total reward.
+    </p>
+    <p style="margin-top:1.5rem; font-weight:bold;">
+      Click anywhere to proceed
+    </p>
+  </div>
+</div>
+
+<!-- Main game area -->
+<div id="game-area" style="text-align:center; margin-top:4rem; display:none;">
+
+  <div style="margin-bottom:2rem;">
+    <span>Round <span id="trial-number">1</span> / {{ C.NUM_TRIALS }}</span>
+  </div>
+
+  <div id="status-text" style="margin-bottom:2rem; font-size:1.5rem;">
+    Wait...
+  </div>
+
+  <div style="display:flex; justify-content:center; gap:3rem; margin-bottom:2rem;">
+    <button id="left-btn" class="btn btn-primary big-button" disabled>Left</button>
+    <button id="right-btn" class="btn btn-primary big-button" disabled>Right</button>
+  </div>
+
+  <div id="total-points" style="font-size:1.2rem;">
+    Total points: <span id="points-value">0</span>
+  </div>
+
+</div>
+
+<script>
+  const introOverlay = document.getElementById("intro-overlay");
+  const gameArea = document.getElementById("game-area");
+  const statusText = document.getElementById("status-text");
+  const leftBtn = document.getElementById("left-btn");
+  const rightBtn = document.getElementById("right-btn");
+  const trialNumberSpan = document.getElementById("trial-number");
+  const pointsValueSpan = document.getElementById("points-value");
+
+  let waitingForChoice = false;
+  let finished = false;
+
+  function setButtonsEnabled(enabled) {
+    leftBtn.disabled = !enabled;
+    rightBtn.disabled = !enabled;
+  }
+
+  // Intro: click anywhere to start
+  introOverlay.addEventListener("click", function () {
+    introOverlay.style.display = "none";
+    gameArea.style.display = "block";
+    // Tell server we are starting the game
+    liveSend({type: "start"});
+    statusText.textContent = "Wait...";
+  });
+
+  // Start one trial: Wait... (2 s) then "Select your choice now"
+  function startChoicePhase() {
+    if (finished) return;
+
+    statusText.textContent = "Wait...";
+    setButtonsEnabled(false);
+
+    setTimeout(function () {
+      if (finished) return;
+      statusText.textContent = "Select your choice now";
+      setButtonsEnabled(true);
+      waitingForChoice = true;
+    }, 2000); // 2 seconds
+  }
+
+  // Button handlers
+  leftBtn.onclick = function () {
+    if (!waitingForChoice || finished) return;
+    waitingForChoice = false;
+    setButtonsEnabled(false);
+    liveSend({type: "choice", choice: "L"});
+  };
+
+  rightBtn.onclick = function () {
+    if (!waitingForChoice || finished) return;
+    waitingForChoice = false;
+    setButtonsEnabled(false);
+    liveSend({type: "choice", choice: "R"});
+  };
+
+  // Handle messages from the server
+  function liveRecv(data) {
+    if (data.type === "ready") {
+      // First trial initialization
+      trialNumberSpan.textContent = data.trial;
+      pointsValueSpan.textContent = data.total_points;
+      startChoicePhase();
+    } else if (data.type === "feedback") {
+      // Show reward for this choice
+      trialNumberSpan.textContent = data.trial;
+      pointsValueSpan.textContent = data.total_points;
+      statusText.textContent = "You won " + data.reward + " points";
+
+      if (data.is_last) {
+        finished = true;
+        // After a short delay, show final total
+        setTimeout(function () {
+          statusText.textContent =
+            "This is the end of the game. You have won " +
+            data.total_points + " points in total.";
+        }, 1500);
+      } else {
+        // After a short delay, go back to the next trial
+        setTimeout(function () {
+          startChoicePhase();
+        }, 1500);
+      }
+    }
+  }
+</script>
+
+{{ endblock }}
