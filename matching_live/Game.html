@@ -43,27 +43,46 @@
   </div>
 </div>
 
-<!-- Main game area -->
-<div id="game-area" style="text-align:center; margin-top:4rem; display:none;">
+<!-- Full-page flexbox wrapper (slightly upward: justify-content:flex-start + top padding) -->
+<div id="game-wrapper"
+     style="
+       height:100vh;
+       display:flex;
+       align-items:flex-start;
+       justify-content:center;
+       padding-top:10vh;  /* Controls upward shift: lower value = higher */
+     ">
 
-  <div style="margin-bottom:2rem;">
-    <span>Round <span id="trial-number">1</span> / {{ C.NUM_TRIALS }}</span>
-  </div>
+  <!-- Main game area (now scaled up) -->
+  <div id="game-area" style="text-align:center; display:none; transform:scale(1.6);">
 
-  <div id="status-text" style="margin-bottom:2rem; font-size:1.5rem;">
-    Wait...
-  </div>
+    <div style="margin-bottom:3rem; font-size:1.8rem;">
+      <span>Round <span id="trial-number">1</span> / {{ C.NUM_TRIALS }}</span>
+    </div>
 
-  <div style="display:flex; justify-content:center; gap:3rem; margin-bottom:2rem;">
-    <button id="left-btn" class="btn btn-primary big-button" disabled>Left</button>
-    <button id="right-btn" class="btn btn-primary big-button" disabled>Right</button>
-  </div>
+    <div id="status-text" style="margin-bottom:3rem; font-size:2rem; font-weight:bold;">
+      Wait...
+    </div>
 
-  <div id="total-points" style="font-size:1.2rem;">
-    Total points: <span id="points-value">0</span>
+    <div style="display:flex; justify-content:center; gap:4rem; margin-bottom:3rem;">
+      <button id="left-btn" class="btn btn-primary" disabled
+              style="font-size:2rem; padding:1rem 2.5rem;">
+        Left
+      </button>
+      <button id="right-btn" class="btn btn-primary" disabled
+              style="font-size:2rem; padding:1rem 2.5rem;">
+        Right
+      </button>
+    </div>
+
+    <div id="total-points" style="font-size:1.8rem; margin-top:1rem;">
+      Total points: <span id="points-value">0</span>
+    </div>
+
   </div>
 
 </div>
+
 
 <script>
   const introOverlay = document.getElementById("intro-overlay");
