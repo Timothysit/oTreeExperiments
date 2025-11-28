@@ -25,6 +25,13 @@
     font-size: 1.4rem;
     line-height: 1.6;
   }
+
+  #game-area.faded {
+      opacity: 0.4;                /* fade */
+      filter: grayscale(70%);      /* optional, makes buttons/text look disabled */
+      pointer-events: none;        /* prevents clicking */
+      transition: opacity 0.3s ease, filter 0.3s ease;
+  }
 </style>
 
 <!-- Intro overlay -->
@@ -46,6 +53,7 @@
 <!-- Full-page flexbox wrapper (slightly upward: justify-content:flex-start + top padding) -->
 <div id="game-wrapper"
      style="
+       position:relative;
        height:100vh;
        display:flex;
        align-items:flex-start;
@@ -53,11 +61,23 @@
        padding-top:10vh;  /* Controls upward shift: lower value = higher */
      ">
 
+  <!-- Gray-out overlay -->
+  <div id="wait-overlay" 
+      style="
+          position:absolute;
+          inset:0;
+          background:rgba(200,200,200,0.6);
+          backdrop-filter: blur(2px);
+          z-index:5;
+          display:none;
+      ">
+  </div>
+
   <!-- Main game area (now scaled up) -->
   <div id="game-area" style="text-align:center; display:none; transform:scale(1.6);">
 
-    <div style="margin-bottom:3rem; font-size:1.8rem;">
-      <span>Round <span id="trial-number">1</span> / {{ C.NUM_TRIALS }}</span>
+    <div id="total-points" style="font-size:1.8rem; margin-top:1rem;">
+      Total points: <span id="points-value">0</span>
     </div>
 
     <div id="status-text" style="margin-bottom:3rem; font-size:2rem; font-weight:bold;">
@@ -75,9 +95,10 @@
       </button>
     </div>
 
-    <div id="total-points" style="font-size:1.8rem; margin-top:1rem;">
-      Total points: <span id="points-value">0</span>
+    <div style="margin-bottom:3rem; font-size:1rem; transform: translateX(-3%);">
+      <span>Round <span id="trial-number">1</span> / {{ C.NUM_TRIALS }}</span>
     </div>
+
 
   </div>
 
@@ -92,6 +113,15 @@
   const rightBtn = document.getElementById("right-btn");
   const trialNumberSpan = document.getElementById("trial-number");
   const pointsValueSpan = document.getElementById("points-value");
+  const waitOverlay = document.getElementById("wait-overlay");
+
+  function fadeGameArea() {
+      document.getElementById("game-area").classList.add("faded");
+  }
+
+  function unfadeGameArea() {
+      document.getElementById("game-area").classList.remove("faded");
+  }
 
   let waitingForChoice = false;
   let finished = false;
@@ -114,11 +144,15 @@
   function startChoicePhase() {
     if (finished) return;
 
+    // Begin WAIT state
     statusText.textContent = "Wait...";
     setButtonsEnabled(false);
+    fadeGameArea();   // fade everything
 
+    // After X seconds, enable choice
     setTimeout(function () {
       if (finished) return;
+      unfadeGameArea();    // restore normal brightness
       statusText.textContent = "Select your choice now";
       setButtonsEnabled(true);
       waitingForChoice = true;
