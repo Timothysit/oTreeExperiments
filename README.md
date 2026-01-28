@@ -18,3 +18,11 @@ If you want to install `oTree` some other way, the installation instructions are
 
 https://otree.readthedocs.io/en/latest/install.html
 
+
+# Starting oTree 
+
+Assuming you installed oTree using UV, change to the oTreeExperiemnts folder, and do:
+
+```
+uv run otree devserver
+```
