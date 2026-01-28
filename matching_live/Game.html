@@ -96,7 +96,7 @@
     </div>
 
     <div style="margin-bottom:3rem; font-size:1rem; transform: translateX(-3%);">
-      <span>Round <span id="trial-number">1</span> / {{ C.NUM_TRIALS }}</span>
+      <span>Round <span id="trial-number">1</span> / <span id="trial-total">10</span></span>
     </div>
 
 
@@ -177,27 +177,49 @@
   // Handle messages from the server
   function liveRecv(data) {
     if (data.type === "ready") {
-      // First trial initialization
       trialNumberSpan.textContent = data.trial;
       pointsValueSpan.textContent = data.total_points;
+
+      // Optional: show phase somewhere
+      statusText.textContent = (data.phase === "single")
+        ? "Single-player block: wait..."
+        : "Two-player block: wait...";
+
       startChoicePhase();
-    } else if (data.type === "feedback") {
-      // Show reward for this choice
+
+    } else if (data.type === "wait_opponent") {
+      // You already made your choice in multiplayer; just wait for the other player.
       trialNumberSpan.textContent = data.trial;
       pointsValueSpan.textContent = data.total_points;
-      statusText.textContent = "You won " + data.reward + " points";
+      setButtonsEnabled(false);
+      statusText.textContent = "Waiting for the other player...";
+      fadeGameArea();
+
+    } else if (data.type === "feedback") {
+      trialNumberSpan.textContent = data.trial;
+      pointsValueSpan.textContent = data.total_points;
+
+      if (data.phase === "single") {
+        statusText.textContent = "You won " + data.reward + " points";
+
+      } else if (data.phase === "multi") {
+        // data.other_choice is provided in multi phase
+        statusText.textContent =
+          "You chose " + data.your_choice +
+          ", other chose " + data.other_choice +
+          ". You won " + data.reward + " points";
+      }
 
       if (data.is_last) {
         finished = true;
-        // After a short delay, show final total
         setTimeout(function () {
           statusText.textContent =
             "This is the end of the game. You have won " +
             data.total_points + " points in total.";
         }, 1500);
       } else {
-        // After a short delay, go back to the next trial
         setTimeout(function () {
+          unfadeGameArea();
           startChoicePhase();
         }, 1500);
       }
