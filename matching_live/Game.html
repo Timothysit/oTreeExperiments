@@ -125,6 +125,7 @@
 
   let waitingForChoice = false;
   let finished = false;
+  let choiceStartMs = null; // when "Select your choice now" appears
 
   function setButtonsEnabled(enabled) {
     leftBtn.disabled = !enabled;
@@ -155,8 +156,9 @@
       unfadeGameArea();    // restore normal brightness
       statusText.textContent = "Select your choice now";
       setButtonsEnabled(true);
+      choiceStartMs = performance.now(); // start the RT clock
       waitingForChoice = true;
-    }, 2000); // 2 seconds
+    }, 2000); // how long to enable choice after wait... 
   }
 
   // Button handlers
@@ -164,14 +166,17 @@
     if (!waitingForChoice || finished) return;
     waitingForChoice = false;
     setButtonsEnabled(false);
-    liveSend({type: "choice", choice: "L"});
+    // calculate reaction time
+    const rt_ms = (choiceStartMs === null) ? null : Math.round(performance.now() - choiceStartMs);
+    liveSend({type: "choice", choice: "L", rt_ms: rt_ms});
   };
 
   rightBtn.onclick = function () {
     if (!waitingForChoice || finished) return;
     waitingForChoice = false;
     setButtonsEnabled(false);
-    liveSend({type: "choice", choice: "R"});
+    const rt_ms = (choiceStartMs === null) ? null : Math.round(performance.now() - choiceStartMs);
+    liveSend({type: "choice", choice: "R", rt_ms: rt_ms});
   };
 
   // Handle messages from the server

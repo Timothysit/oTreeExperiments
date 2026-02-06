@@ -1,6 +1,7 @@
 from otree.api import *
 import random
-
+import time 
+import json  
 
 class C(BaseConstants):
     NAME_IN_URL = 'matching_live'
@@ -17,11 +18,37 @@ class C(BaseConstants):
 class Subsession(BaseSubsession):
     pass
 
+def ensure_single_opponent_assigned(player):
+    """
+    Randomly assigns algo_A or algo_B ONCE per participant, stores in participant.vars.
+    Returns (opponent_type, opponent_id).
+    """
+    pv = player.participant.vars
+    if "single_opponent_type" not in pv:
+        pv["single_opponent_type"] = random.choice(["algo_A", "algo_B"])
+        pv["single_opponent_id"] = f'{pv["single_opponent_type"]}_v1'
+    return pv["single_opponent_type"], pv["single_opponent_id"]
+
 
 class Group(BaseGroup):
     # temporary storage for multi-player phase choices
     p1_choice = models.StringField(blank=True)
     p2_choice = models.StringField(blank=True)
+
+    # temp storage for RTs in multiplayer
+    p1_rt_ms = models.IntegerField(initial=0)
+    p2_rt_ms = models.IntegerField(initial=0)
+
+    # One row per completed trial (single + multi)
+    trial_log_json = models.LongStringField(initial='[]')
+
+    # Algorithm state
+    algo_state_json = models.LongStringField(initial='{}')
+
+    def append_trial(self, row: dict):
+        log = json.loads(self.trial_log_json or '[]')
+        log.append(row)
+        self.trial_log_json = json.dumps(log)
 
 
 
@@ -30,6 +57,8 @@ class Player(BasePlayer):
     total_points = models.IntegerField(initial=0)
     last_choice = models.StringField(blank=True)
     last_reward = models.IntegerField(initial=0)
+    last_rt_ms = models.IntegerField(initial=0)
+
 
 def _phase_and_display_trial(player: Player):
     # This function controls whether the current trial is single-player or multiplayer
@@ -51,7 +80,7 @@ def live_game(player: Player, data):
 
     Expected messages:
         {type: "start"}
-        {type: "choice", choice: "L" or "R"}
+        {type: "choice", choice: "L" or "R", rt_ms: 123}
     """
     msg_type = data.get('type')
 
@@ -66,9 +95,13 @@ def live_game(player: Player, data):
         g = player.group
         g.p1_choice = ""
         g.p2_choice = ""
+        g.trial_log_json = "[]"  # reset the json log 
+
+        # Assign whether solo play against computer algorithm A or B
+        opp_type, opp_id = ensure_single_opponent_assigned(player)
+
 
         phase, disp_trial, disp_total = _phase_and_display_trial(player)
-
 
         # Tell the client we're ready for trial 1
         return {
@@ -92,24 +125,49 @@ def live_game(player: Player, data):
 
     # ---------- Phase 1: single-player ----------
     if player.current_trial < C.NUM_TRIALS_SINGLE:
+        g = player.group
+        rt_ms = int(data.get("rt_ms", 0))
+        player.last_rt_ms = rt_ms
+
+        # Decide opponent type for this block (algo_A/algo_B)
+        opponent_type, opponent_id = ensure_single_opponent_assigned(player)
+
+        # TODO: compute opponent choice if you want (for now None)
+        opponent_choice = None
+
+        # Your current placeholder win/loss
         is_win = random.random() < 0.5
         reward = C.REWARD_WIN if is_win else C.REWARD_LOSS
         player.last_reward = reward
         player.total_points += reward
+
+        # Log BEFORE increment (trial index is stable)
+        row = dict(
+            overall_trial=player.current_trial + 1,   # 1-based overall
+            block="single",
+            block_trial=player.current_trial + 1,     # 1..NUM_TRIALS_SINGLE
+            opponent_type=opponent_type,              # "algo_A" / "algo_B"
+            opponent_id=opponent_id,
+            player_code=player.participant.code,
+            player_choice=choice,
+            player_rt_ms=rt_ms,
+            opponent_choice=opponent_choice,          # fill when you implement the algos
+            reward=reward,
+            total_points_after=player.total_points,
+            server_ts=time.time(),
+        )
+        g.append_trial(row)
+
+        # Now advance
         player.current_trial += 1
 
         is_last = _overall_done(player)
-        if not is_last:
-            phase, disp_trial, disp_total = _phase_and_display_trial(player)
-        else:
-            # game ended right after increment (only possible if totals match)
-            phase, disp_trial, disp_total = "end", C.NUM_TRIALS_MULTI, C.NUM_TRIALS_MULTI
 
         return {
             player.id_in_group: dict(
                 type="feedback",
                 phase="single",
-                trial=min(player.current_trial, C.NUM_TRIALS_SINGLE),  # show 1..10
+                trial=min(player.current_trial, C.NUM_TRIALS_SINGLE),
                 trial_total=C.NUM_TRIALS_SINGLE,
                 reward=reward,
                 total_points=player.total_points,
@@ -119,12 +177,15 @@ def live_game(player: Player, data):
 
     # ---------- Phase 2: two-player matching pennies ----------
     g = player.group
+    rt_ms = int(data.get("rt_ms", 0))
+    player.last_rt_ms = rt_ms
 
-    # save this player's choice into the group
     if player.id_in_group == 1:
         g.p1_choice = choice
+        g.p1_rt_ms = rt_ms
     else:
         g.p2_choice = choice
+        g.p2_rt_ms = rt_ms
 
     other = player.get_others_in_group()[0]
 
@@ -145,10 +206,8 @@ def live_game(player: Player, data):
     p1 = g.get_player_by_id(1)
     p2 = g.get_player_by_id(2)
     c1, c2 = g.p1_choice, g.p2_choice
+    rt1, rt2 = g.p1_rt_ms, g.p2_rt_ms
 
-    # Rule (common “matching pennies” variant):
-    # - if choices MATCH, Player 1 wins
-    # - if choices DIFFER, Player 2 wins
     if c1 == c2:
         r1, r2 = C.REWARD_WIN, C.REWARD_LOSS
         winner = 1
@@ -160,17 +219,43 @@ def live_game(player: Player, data):
     p1.total_points += r1
     p2.total_points += r2
 
-    # advance BOTH players to the next overall trial
+    # current multiplayer trial number (before increment)
+    current_multi_trial = (p1.current_trial - C.NUM_TRIALS_SINGLE) + 1
+
+    # Log a single combined row for this multiplayer trial
+    row = dict(
+        overall_trial=p1.current_trial + 1,  # both players share the same overall trial index
+        block="multi",
+        block_trial=current_multi_trial,     # 1..NUM_TRIALS_MULTI
+        opponent_type="human",
+        p1_code=p1.participant.code,
+        p2_code=p2.participant.code,
+        p1_choice=c1,
+        p2_choice=c2,
+        p1_rt_ms=rt1,
+        p2_rt_ms=rt2,
+        p1_reward=r1,
+        p2_reward=r2,
+        winner=winner,
+        p1_total_points_after=p1.total_points,
+        p2_total_points_after=p2.total_points,
+        server_ts=time.time(),
+    )
+    g.append_trial(row)
+
+    # advance BOTH players
     p1.current_trial += 1
     p2.current_trial += 1
 
-    # clear group stored choices for next trial
-    g.p1_choice = ""
-    g.p2_choice = ""
-
     is_last_1 = _overall_done(p1)
     is_last_2 = _overall_done(p2)
-    is_last = is_last_1 or is_last_2  # should be same if both advanced together
+    is_last = is_last_1 or is_last_2   # should be the same for both if they stay in sync
+
+    # clear group stored choices/RTs
+    g.p1_choice = ""
+    g.p2_choice = ""
+    g.p1_rt_ms = 0
+    g.p2_rt_ms = 0
 
     # compute next display trial values (for after feedback)
     # (but we send the *current* multiplayer trial number in the message)
@@ -206,10 +291,6 @@ def live_game(player: Player, data):
 
 class WaitForPair(WaitPage):
     group_by_arrival_time = True
-
-
-class Game(Page):
-    live_method = live_game
 
 
 class Game(Page):
