@@ -19,10 +19,17 @@ If you want to install `oTree` some other way, the installation instructions are
 https://otree.readthedocs.io/en/latest/install.html
 
 
-# Starting oTree 
+# Starting oTree and the experiment
 
 Assuming you installed oTree using UV, change to the oTreeExperiemnts folder, and do:
 
 ```
 uv run otree devserver
 ```
+
+1. Click on the link provided 
+2. Go to the Sessions tab
+3. Click create new session and select `matching_pennies_solo_live`
+4. Set number of participants to 2
+5. Two links will be provided, one for each computer
+
