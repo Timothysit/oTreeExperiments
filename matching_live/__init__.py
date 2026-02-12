@@ -7,8 +7,8 @@ class C(BaseConstants):
     NAME_IN_URL = 'matching_live'
     PLAYERS_PER_GROUP = 2
     NUM_ROUNDS = 1  # all 10 trials happen on a single page
-    NUM_TRIALS_SINGLE = 10
-    NUM_TRIALS_MULTI = 10
+    NUM_TRIALS_SINGLE = 3
+    NUM_TRIALS_MULTI = 3
     NUM_TRIALS_TOTAL = NUM_TRIALS_SINGLE + NUM_TRIALS_MULTI
 
     REWARD_WIN = 10

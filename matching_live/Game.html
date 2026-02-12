@@ -32,6 +32,17 @@
       pointer-events: none;        /* prevents clicking */
       transition: opacity 0.3s ease, filter 0.3s ease;
   }
+
+.choice-selected {
+  transform: scale(1.5);
+  transition: all 0.15s ease;
+}
+
+.choice-unselected {
+  transform: scale(0.75);
+  transition: opacity 0.15s ease;
+}
+
 </style>
 
 <!-- Intro overlay -->
@@ -40,12 +51,34 @@
             background-color:rgba(255,255,255,0.95); cursor:pointer; z-index:10;">
   <div style="max-width:600px; text-align:center;">
     <p>
-      In this game, you have two options, either left or right. On each turn,
-      you will select one of the options and be told how much you were rewarded.
+      In this game, you have two options, either left (keyboard button "f") or right (keyboard button "j"). 
+      On each turn, you will select one of the options and be told how much you were rewarded.
       At the end of the game, you will be paid based on your total reward.
     </p>
     <p style="margin-top:1.5rem; font-weight:bold;">
       Click anywhere to proceed
+    </p>
+  </div>
+</div>
+
+
+<!-- Break overlay between Part 1 and Part 2 -->
+<div id="break-overlay"
+     style="position:fixed; inset:0; display:none;
+            align-items:center; justify-content:center;
+            background-color:rgba(255,255,255,0.95);
+            cursor:pointer; z-index:10;">
+  <div style="max-width:600px; text-align:center;">
+    <p style="font-size:1.6rem; font-weight:bold;">
+      Part 1 of the game is now finished
+    </p>
+
+    <p style="margin-top:1.2rem;">
+      You may now take a <strong>5 minute break</strong>.
+    </p>
+
+    <p style="margin-top:1.2rem;">
+      Click anywhere when you are ready to start Part 2.
     </p>
   </div>
 </div>
@@ -76,8 +109,19 @@
   <!-- Main game area (now scaled up) -->
   <div id="game-area" style="text-align:center; display:none; transform:scale(1.6);">
 
-    <div id="total-points" style="font-size:1.8rem; margin-top:1rem;">
-      Total points: <span id="points-value">0</span>
+    <div id="total-points" style="font-size:1.8rem; margin-top:1rem; line-height:1.4;">
+      <div id="total-points-row">
+        <span id="total-points-label">Total points:</span>
+        <span id="total-points-value">0</span>
+      </div>
+
+      <div id="part1-points-row" style="display:none;">
+        Part 1 total points: <span id="part1-points-value">0</span>
+      </div>
+
+      <div id="part2-points-row" style="display:none;">
+        Part 2 total points: <span id="part2-points-value">0</span>
+      </div>
     </div>
 
     <div id="status-text" style="margin-bottom:3rem; font-size:2rem; font-weight:bold;">
@@ -87,16 +131,16 @@
     <div style="display:flex; justify-content:center; gap:4rem; margin-bottom:3rem;">
       <button id="left-btn" class="btn btn-primary" disabled
               style="font-size:2rem; padding:1rem 2.5rem;">
-        Left
+        Left (f)
       </button>
       <button id="right-btn" class="btn btn-primary" disabled
               style="font-size:2rem; padding:1rem 2.5rem;">
-        Right
+        Right (j)
       </button>
     </div>
 
     <div style="margin-bottom:3rem; font-size:1rem; transform: translateX(-3%);">
-      <span>Round <span id="trial-number">1</span> / <span id="trial-total">10</span></span>
+      <span>Round <span id="trial-number">1</span> </span>
     </div>
 
 
@@ -112,8 +156,19 @@
   const leftBtn = document.getElementById("left-btn");
   const rightBtn = document.getElementById("right-btn");
   const trialNumberSpan = document.getElementById("trial-number");
-  const pointsValueSpan = document.getElementById("points-value");
   const waitOverlay = document.getElementById("wait-overlay");
+
+  // Points tracking 
+  const totalRow = document.getElementById("total-points-row");
+  const totalLabel = document.getElementById("total-points-label");
+  const totalValue = document.getElementById("total-points-value");
+
+  const part1Row = document.getElementById("part1-points-row");
+  const part2Row = document.getElementById("part2-points-row");
+  const part1Value = document.getElementById("part1-points-value");
+  const part2Value = document.getElementById("part2-points-value");
+
+  const NUM_TRIALS_SINGLE = {{ C.NUM_TRIALS_SINGLE }};
 
   function fadeGameArea() {
       document.getElementById("game-area").classList.add("faded");
@@ -126,10 +181,39 @@
   let waitingForChoice = false;
   let finished = false;
   let choiceStartMs = null; // when "Select your choice now" appears
+  let part1TotalPoints = null;
+
+  const breakOverlay = document.getElementById("break-overlay");
+  let breakShown = false;
+  let breakActive = false;
+  let breakStartTime = null;
+  const MIN_BREAK_MS = 5 * 60 * 1000; // 5 minutes
+
+  function processReady(data) {
+    trialNumberSpan.textContent = data.trial;
+    updatePointsUI(data.phase, data.total_points);
+
+    statusText.textContent = (data.phase === "single")
+      ? "Single-player block: wait..."
+      : "Two-player block: wait...";
+
+    startChoicePhase();
+  }
 
   function setButtonsEnabled(enabled) {
     leftBtn.disabled = !enabled;
     rightBtn.disabled = !enabled;
+  }
+
+  // Visuasl feedback after selecting an option
+  function showChoiceFeedback(selectedBtn, otherBtn) {
+  selectedBtn.classList.add("choice-selected");
+  otherBtn.classList.add("choice-unselected");
+  }
+
+  function clearChoiceFeedback() {
+    leftBtn.classList.remove("choice-selected", "choice-unselected");
+    rightBtn.classList.remove("choice-selected", "choice-unselected");
   }
 
   // Intro: click anywhere to start
@@ -144,6 +228,8 @@
   // Start one trial: Wait... (2 s) then "Select your choice now"
   function startChoicePhase() {
     if (finished) return;
+
+    clearChoiceFeedback(); // reset button appearance
 
     // Begin WAIT state
     statusText.textContent = "Wait...";
@@ -166,6 +252,7 @@
     if (!waitingForChoice || finished) return;
     waitingForChoice = false;
     setButtonsEnabled(false);
+    showChoiceFeedback(leftBtn, rightBtn);
     // calculate reaction time
     const rt_ms = (choiceStartMs === null) ? null : Math.round(performance.now() - choiceStartMs);
     liveSend({type: "choice", choice: "L", rt_ms: rt_ms});
@@ -175,15 +262,85 @@
     if (!waitingForChoice || finished) return;
     waitingForChoice = false;
     setButtonsEnabled(false);
+    showChoiceFeedback(rightBtn, leftBtn);
     const rt_ms = (choiceStartMs === null) ? null : Math.round(performance.now() - choiceStartMs);
     liveSend({type: "choice", choice: "R", rt_ms: rt_ms});
   };
 
+  // Update points in text 
+  function updatePointsUI(phase, total_points) {
+  if (phase === "single") {
+    // Part 1: show one line "Total points"
+    totalRow.style.display = "block";
+    part1Row.style.display = "none";
+    part2Row.style.display = "none";
+
+    totalLabel.textContent = "Total points:";
+    totalValue.textContent = total_points;
+
+  } else if (phase === "multi") {
+    // Part 2: show two lines
+    if (part1TotalPoints === null) {
+      // Freeze Part 1 total at the first moment we ever see phase=multi
+      part1TotalPoints = total_points;
+      part1Value.textContent = part1TotalPoints;
+    }
+
+    totalRow.style.display = "none";
+    part1Row.style.display = "block";
+    part2Row.style.display = "block";
+
+    part1Value.textContent = part1TotalPoints;
+    part2Value.textContent = total_points - part1TotalPoints;
+  }
+}
+
+   // --- Keyboard support: F = Left, J = Right ---
+  document.addEventListener("keydown", function (e) {
+    if (finished || !waitingForChoice) return;
+
+    // Avoid multiple sends if the key is held down
+    if (e.repeat) return;
+
+    const key = (e.key || "").toLowerCase();
+
+    // Optional: prevent accidental browser shortcuts / typing side effects
+    if (key === "f" || key === "j") {
+      e.preventDefault();
+    } else {
+      return;
+    }
+
+    if (key === "f" && !leftBtn.disabled) {
+      leftBtn.click();   // reuse your existing onclick logic
+    } else if (key === "j" && !rightBtn.disabled) {
+      rightBtn.click();
+    }
+  });
+
+  // Click to finish break between part 1 and part 2 
+  breakOverlay.addEventListener("click", function () {
+  // Optional enforcement (you currently compute elapsed but don’t use it)
+  // const elapsed = performance.now() - breakStartTime;
+  breakOverlay.style.display = "none";
+  gameArea.style.display = "block";
+  breakActive = false;
+
+  // Start Part 2
+  unfadeGameArea();
+  statusText.textContent = "Wait...";
+  startChoicePhase();
+});
+
   // Handle messages from the server
   function liveRecv(data) {
     if (data.type === "ready") {
+      
+      // DEBUG: confirm what phase string you actually receive
+      console.log("READY:", data.phase, "trial:", data.trial);
+
       trialNumberSpan.textContent = data.trial;
-      pointsValueSpan.textContent = data.total_points;
+      updatePointsUI(data.phase, data.total_points);
 
       // Optional: show phase somewhere
       statusText.textContent = (data.phase === "single")
@@ -193,16 +350,24 @@
       startChoicePhase();
 
     } else if (data.type === "wait_opponent") {
+
       // You already made your choice in multiplayer; just wait for the other player.
       trialNumberSpan.textContent = data.trial;
-      pointsValueSpan.textContent = data.total_points;
+
+      // Update points 
+      updatePointsUI(data.phase, data.total_points);
+
+
       setButtonsEnabled(false);
       statusText.textContent = "Waiting for the other player...";
       fadeGameArea();
 
     } else if (data.type === "feedback") {
       trialNumberSpan.textContent = data.trial;
-      pointsValueSpan.textContent = data.total_points;
+      // Update total score
+      updatePointsUI(data.phase, data.total_points);
+
+
 
       if (data.phase === "single") {
         statusText.textContent = "You won " + data.reward + " points";
@@ -215,6 +380,23 @@
           ". You won " + data.reward + " points";
       }
 
+      // ---- BREAK TRIGGER: after last single-player trial ----
+      if (data.phase === "single" && data.trial === NUM_TRIALS_SINGLE && !breakShown) {
+        breakShown = true;
+        breakActive = true;
+        breakStartTime = performance.now();
+
+        // Show break overlay after the 1.5s feedback display
+        setTimeout(function () {
+          // hide game + show break
+          gameArea.style.display = "none";
+          breakOverlay.style.display = "flex";
+        }, 1500);
+
+        return; // IMPORTANT: don't schedule next startChoicePhase()
+      }
+
+      
       if (data.is_last) {
         finished = true;
         setTimeout(function () {
