@@ -1,7 +1,9 @@
 from otree.api import *
 import random
 import time 
-import json  
+import json 
+from .algorithms import MatchingPennies2
+
 
 class C(BaseConstants):
     NAME_IN_URL = 'matching_live'
@@ -18,6 +20,7 @@ class C(BaseConstants):
 class Subsession(BaseSubsession):
     pass
 
+
 def ensure_single_opponent_assigned(player):
     """
     Randomly assigns algo_A or algo_B ONCE per participant, stores in participant.vars.
@@ -28,6 +31,24 @@ def ensure_single_opponent_assigned(player):
         pv["single_opponent_type"] = random.choice(["algo_A", "algo_B"])
         pv["single_opponent_id"] = f'{pv["single_opponent_type"]}_v1'
     return pv["single_opponent_type"], pv["single_opponent_id"]
+
+
+def get_single_algo(player):
+    """
+    Returns a per-participant algo instance for the single-player block.
+    Stored in participant.vars so it persists across live calls.
+    """
+    pv = player.participant.vars
+
+    # choose parameters (match your MATLAB defaults)
+    N = pv.get("algoA_trials_back", 3)      # or whatever you want
+    alpha = pv.get("algoA_alpha", 0.05)
+
+    if "single_algo" not in pv:
+        # If Algorithm A is meant to *beat* the human, invert_prediction=True.
+        pv["single_algo"] = MatchingPennies2(N=N, alpha=alpha, invert_prediction=True)
+
+    return pv["single_algo"]
 
 
 class Group(BaseGroup):
@@ -100,6 +121,10 @@ def live_game(player: Player, data):
         # Assign whether solo play against computer algorithm A or B
         opp_type, opp_id = ensure_single_opponent_assigned(player)
 
+        # If this participant is assigned algo_A, create the state now
+        if opp_type == "algo_A":
+            _ = get_single_algo(player)
+
 
         phase, disp_trial, disp_total = _phase_and_display_trial(player)
 
@@ -132,14 +157,28 @@ def live_game(player: Player, data):
         # Decide opponent type for this block (algo_A/algo_B)
         opponent_type, opponent_id = ensure_single_opponent_assigned(player)
 
-        # TODO: compute opponent choice if you want (for now None)
-        opponent_choice = None
+        # Decide opponent move
+        if opponent_type == "algo_A":
+            algo = get_single_algo(player)
+            opponent_choice = algo.sample()
+        else:
+            # keep your algo_B placeholder for now (random opponent)
+            opponent_choice = random.choice(["L", "R"])
 
-        # Your current placeholder win/loss
-        is_win = random.random() < 0.5
+        # Resolve outcome (match your multiplayer logic: player wins if choices match)
+        is_win = (choice == opponent_choice)
         reward = C.REWARD_WIN if is_win else C.REWARD_LOSS
         player.last_reward = reward
         player.total_points += reward
+
+        # Update algo with HUMAN (opponent-from-algo-perspective) history:
+        # last_reward must be 0/1, not 0/10.
+        if opponent_type == "algo_A":
+            human_reward_bin = 1 if is_win else 0
+            algo.update(last_choice=choice, last_reward=human_reward_bin)
+        
+        if opponent_type == "algo_A":
+            g.algo_state_json = json.dumps(algo.to_dict())
 
         # Log BEFORE increment (trial index is stable)
         row = dict(
