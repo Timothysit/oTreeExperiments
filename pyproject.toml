@@ -3,5 +3,7 @@ name = "otreeexperiments"
 version = "0.0.0"
 requires-python = ">=3.10"
 dependencies = [
+  "numpy>=2.2.6",
   "otree",
+  "scipy>=1.15.3",
 ]
