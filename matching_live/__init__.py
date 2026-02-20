@@ -2,17 +2,18 @@ from otree.api import *
 import random
 import time 
 import json 
-from .algorithms import MatchingPennies2
-
+from .algorithms import MatchingPennies2, BlockFlipperWithExtension
 
 class C(BaseConstants):
     NAME_IN_URL = 'matching_live'
     PLAYERS_PER_GROUP = 2
     NUM_ROUNDS = 1  # all 10 trials happen on a single page
-    NUM_TRIALS_SINGLE = 3
-    NUM_TRIALS_MULTI = 3
+    NUM_TRIALS_SINGLE = 100
+    NUM_TRIALS_MULTI = 100
     NUM_TRIALS_TOTAL = NUM_TRIALS_SINGLE + NUM_TRIALS_MULTI
-
+    # If True: ensure one player gets A and the other gets B (randomly swapped)
+    # If False: each player independently random (AA, AB, BA, BB all possible)
+    ENFORCE_ONE_A_ONE_B_PER_GROUP = True
     REWARD_WIN = 10
     REWARD_LOSS = 0
 
@@ -23,15 +24,75 @@ class Subsession(BaseSubsession):
 
 def ensure_single_opponent_assigned(player):
     """
-    Randomly assigns algo_A or algo_B ONCE per participant, stores in participant.vars.
-    Returns (opponent_type, opponent_id).
+    Assigns algo_A/algo_B ONCE per participant and stores in participant.vars.
+
+    Modes (controlled by C.ENFORCE_ONE_A_ONE_B_PER_GROUP):
+      - True: group-level split (one A, one B) with random swap
+      - False: independent random per player (AA/AB/BA/BB possible)
     """
     pv = player.participant.vars
-    if "single_opponent_type" not in pv:
-        pv["single_opponent_type"] = random.choice(["algo_A", "algo_B"])
-        pv["single_opponent_id"] = f'{pv["single_opponent_type"]}_v1'
+    if "single_opponent_type" in pv:
+        pv.setdefault("single_opponent_id", f'{pv["single_opponent_type"]}_v1')
+        return pv["single_opponent_type"], pv["single_opponent_id"]
+
+    g = player.group
+
+    if C.ENFORCE_ONE_A_ONE_B_PER_GROUP:
+        # set once per group: 0 => p1=A,p2=B ; 1 => p1=B,p2=A
+        if getattr(g, "algo_split_flip", None) is None:
+            # if you didn't define it as a model field, just store in session vars:
+            # but better is to define Group.algo_split_flip as IntegerField
+            pass
+
+        if g.algo_split_flip == -1:
+            g.algo_split_flip = random.randint(0, 1)
+
+        # decide A/B based on flip + role
+        if (player.id_in_group == 1 and g.algo_split_flip == 0) or (player.id_in_group == 2 and g.algo_split_flip == 1):
+            opp = "algo_A"
+        else:
+            opp = "algo_B"
+    else:
+        # fully independent random
+        opp = random.choice(["algo_A", "algo_B"])
+
+    pv["single_opponent_type"] = opp
+    pv["single_opponent_id"] = f"{opp}_v1"
     return pv["single_opponent_type"], pv["single_opponent_id"]
 
+
+def assign_single_opponents_for_pair(group):
+    """
+    Assigns single-player opponent types for BOTH players in this group.
+    If FORCE_SPLIT_ALGOS_IN_PAIR=True, ensures one is algo_A and one is algo_B.
+    Stores results in participant.vars.
+    """
+    p1 = group.get_player_by_id(1)
+    p2 = group.get_player_by_id(2)
+
+    # If already assigned for both, do nothing
+    if ("single_opponent_type" in p1.participant.vars) and ("single_opponent_type" in p2.participant.vars):
+        return
+
+    if C.FORCE_SPLIT_ALGOS_IN_PAIR:
+        # Randomize which player gets which algorithm
+        if random.random() < 0.5:
+            a_player, b_player = p1, p2
+        else:
+            a_player, b_player = p2, p1
+
+        a_player.participant.vars["single_opponent_type"] = "algo_A"
+        a_player.participant.vars["single_opponent_id"] = "algo_A_v1"
+
+        b_player.participant.vars["single_opponent_type"] = "algo_B"
+        b_player.participant.vars["single_opponent_id"] = "algo_B_v1"
+
+    else:
+        # Old behaviour: independent random assignment
+        for pl in (p1, p2):
+            if "single_opponent_type" not in pl.participant.vars:
+                pl.participant.vars["single_opponent_type"] = random.choice(["algo_A", "algo_B"])
+                pl.participant.vars["single_opponent_id"] = f'{pl.participant.vars["single_opponent_type"]}_v1'
 
 def get_single_algo(player):
     """
@@ -40,18 +101,38 @@ def get_single_algo(player):
     """
     pv = player.participant.vars
 
-    # choose parameters (match your MATLAB defaults)
-    N = pv.get("algoA_trials_back", 3)      # or whatever you want
-    alpha = pv.get("algoA_alpha", 0.05)
 
     if "single_algo" not in pv:
-        # If Algorithm A is meant to *beat* the human, invert_prediction=True.
-        pv["single_algo"] = MatchingPennies2(N=N, alpha=alpha, invert_prediction=True)
+        # choose parameters (match your MATLAB defaults)
+        N = pv.get("algoA_trials_back", 3)      # or whatever you want
+        alpha = pv.get("algoA_alpha", 0.05)
+        # If Algorithm A is meant to *beat* the human, invert_prediction=False.
+        pv["single_algo"] = MatchingPennies2(N=N, alpha=alpha, invert_prediction=False)
 
     return pv["single_algo"]
 
 
+
+def get_bandit_env(player):
+    pv = player.participant.vars
+    if "bandit_env" not in pv:
+        pv["bandit_env"] = BlockFlipperWithExtension(
+            p_high=0.6,
+            p_low=0.0,
+            lambda_=25.0,
+            extend_block=5,
+            block_extend_threshold=0.2,
+        )
+    return pv["bandit_env"]
+
+
 class Group(BaseGroup):
+
+    started = models.BooleanField(initial=False)
+
+    algo_split_flip = models.IntegerField(initial=-1)  # -1 unset, else 0/1
+    
+
     # temporary storage for multi-player phase choices
     p1_choice = models.StringField(blank=True)
     p2_choice = models.StringField(blank=True)
@@ -70,6 +151,7 @@ class Group(BaseGroup):
         log = json.loads(self.trial_log_json or '[]')
         log.append(row)
         self.trial_log_json = json.dumps(log)
+    
 
 
 
@@ -103,32 +185,37 @@ def live_game(player: Player, data):
         {type: "start"}
         {type: "choice", choice: "L" or "R", rt_ms: 123}
     """
+    print("LIVE_GAME", player.participant.code, player.id_in_group, data, flush=True)
+
     msg_type = data.get('type')
 
     # First click after intro: initialize the game
     if msg_type == 'start':
-        player.current_trial = 0
-        player.total_points = 0
-        player.last_choice = ''
-        player.last_reward = 0
-
-        # also clear any stale group fields
         g = player.group
-        g.p1_choice = ""
-        g.p2_choice = ""
-        g.trial_log_json = "[]"  # reset the json log 
 
-        # Assign whether solo play against computer algorithm A or B
+        if not g.started:
+            g.started = True
+            g.trial_log_json = "[]"
+            g.algo_state_json = "{}"
+            g.p1_choice = g.p2_choice = ""
+            g.p1_rt_ms = g.p2_rt_ms = 0
+
+            # Reset BOTH players once
+            for p in g.get_players():
+                p.current_trial = 0
+                p.total_points = 0
+                p.last_choice = ""
+                p.last_reward = 0
+                p.last_rt_ms = 0
+
+        # assign algo for THIS player (role-based or randomized)
         opp_type, opp_id = ensure_single_opponent_assigned(player)
 
-        # If this participant is assigned algo_A, create the state now
         if opp_type == "algo_A":
             _ = get_single_algo(player)
 
-
         phase, disp_trial, disp_total = _phase_and_display_trial(player)
 
-        # Tell the client we're ready for trial 1
         return {
             player.id_in_group: dict(
                 type="ready",
@@ -161,13 +248,33 @@ def live_game(player: Player, data):
         if opponent_type == "algo_A":
             algo = get_single_algo(player)
             opponent_choice = algo.sample()
+        elif opponent_type == "algo_B":
+            env = get_bandit_env(player)
+
+            reward_bin = env.trial(choice)  # 0/1
+            reward = C.REWARD_WIN if reward_bin == 1 else C.REWARD_LOSS
+
+            # For logging/debug (optional):
+            bandit_state = env.to_dict()
+            high_side = env.high_side
+            p_choice = env.reward_prob(choice)
+
+            opponent_choice = None
         else:
             # keep your algo_B placeholder for now (random opponent)
             opponent_choice = random.choice(["L", "R"])
 
         # Resolve outcome (match your multiplayer logic: player wins if choices match)
-        is_win = (choice == opponent_choice)
-        reward = C.REWARD_WIN if is_win else C.REWARD_LOSS
+        # Compute reward (depends on opponent_type)
+        if opponent_type == "algo_B":  # two-armed bandit
+            # reward already computed by bandit env above
+            is_win = (reward > 0)  # just for convenience/logging
+        else:
+            # matching pennies style (algo_A or random opponent)
+            is_win = (choice == opponent_choice)
+            reward = C.REWARD_WIN if is_win else C.REWARD_LOSS
+        
+
         player.last_reward = reward
         player.total_points += reward
 
@@ -195,6 +302,17 @@ def live_game(player: Player, data):
             total_points_after=player.total_points,
             server_ts=time.time(),
         )
+
+        if opponent_type == "algo_B":
+            row.update(dict(
+                reward_bin=reward_bin,              # 0/1 (from env.trial)
+                reward_prob=p_choice,               # prob used on this trial
+                bandit_high_side=high_side,         # which side is high *after* env.trial() (see note below)
+                bandit_block_flip=bandit_state["block_flip"],
+                bandit_block_length=bandit_state["block_length"],
+            ))
+            g.algo_state_json = json.dumps(bandit_state)
+
         g.append_trial(row)
 
         # Now advance

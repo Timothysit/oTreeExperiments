@@ -220,8 +220,7 @@
   introOverlay.addEventListener("click", function () {
     introOverlay.style.display = "none";
     gameArea.style.display = "block";
-    // Tell server we are starting the game
-    liveSend({type: "start"});
+    liveSend({ type: "start" });
     statusText.textContent = "Wait...";
   });
 
@@ -335,6 +334,8 @@
   // Handle messages from the server
   function liveRecv(data) {
     if (data.type === "ready") {
+
+      gotReady = true;
       
       // DEBUG: confirm what phase string you actually receive
       console.log("READY:", data.phase, "trial:", data.trial);
