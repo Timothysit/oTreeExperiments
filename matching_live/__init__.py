@@ -8,8 +8,8 @@ class C(BaseConstants):
     NAME_IN_URL = 'matching_live'
     PLAYERS_PER_GROUP = 2
     NUM_ROUNDS = 1  # all 10 trials happen on a single page
-    NUM_TRIALS_SINGLE = 100
-    NUM_TRIALS_MULTI = 100
+    NUM_TRIALS_SINGLE = 5
+    NUM_TRIALS_MULTI = 5
     NUM_TRIALS_TOTAL = NUM_TRIALS_SINGLE + NUM_TRIALS_MULTI
     # If True: ensure one player gets A and the other gets B (randomly swapped)
     # If False: each player independently random (AA, AB, BA, BB all possible)
@@ -161,6 +161,7 @@ class Player(BasePlayer):
     last_choice = models.StringField(blank=True)
     last_reward = models.IntegerField(initial=0)
     last_rt_ms = models.IntegerField(initial=0)
+    part1_points = models.IntegerField(initial=0)
 
 
 def _phase_and_display_trial(player: Player):
@@ -318,6 +319,10 @@ def live_game(player: Player, data):
         # Now advance
         player.current_trial += 1
 
+        # Get the total number of points for solo part (round 1)
+        if player.current_trial == C.NUM_TRIALS_SINGLE:
+            player.part1_points = player.total_points
+
         is_last = _overall_done(player)
 
         return {
@@ -454,5 +459,18 @@ class Game(Page):
     # This tells oTree to use the live_game function for WebSocket messages
     live_method = live_game
 
+class End(Page):
+    def is_displayed(player: Player):
+        return _overall_done(player)
 
-page_sequence = [Game]
+    def vars_for_template(player: Player):
+        part1 = player.part1_points
+        part2 = player.total_points - part1
+        return dict(
+            part1_points=part1,
+            part2_points=part2,
+            total_points=player.total_points,
+        )
+
+
+page_sequence = [Game, End]

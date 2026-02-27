@@ -360,7 +360,7 @@
 
 
       setButtonsEnabled(false);
-      statusText.textContent = "Waiting for the other player...";
+      // statusText.textContent = "Waiting for the other player...";
       fadeGameArea();
 
     } else if (data.type === "feedback") {
@@ -374,11 +374,16 @@
         statusText.textContent = "You won " + data.reward + " points";
 
       } else if (data.phase === "multi") {
+        
+        // real game (same feedback as solo)
+        statusText.textContent = "You won " + data.reward + " points";
+        
+        // for testing only to report opponent choice
         // data.other_choice is provided in multi phase
-        statusText.textContent =
-          "You chose " + data.your_choice +
-          ", other chose " + data.other_choice +
-          ". You won " + data.reward + " points";
+        //statusText.textContent =
+        //  "You chose " + data.your_choice +
+        //  ", other chose " + data.other_choice +
+        //  ". You won " + data.reward + " points";
       }
 
       // ---- BREAK TRIGGER: after last single-player trial ----
@@ -400,11 +405,18 @@
       
       if (data.is_last) {
         finished = true;
+
         setTimeout(function () {
-          statusText.textContent =
-            "This is the end of the game. You have won " +
-            data.total_points + " points in total.";
+          statusText.textContent = "Game finished. Moving to summary...";
+
+          // IMPORTANT: submit the oTree page so it advances to End(Page)
+          const form = document.getElementById("form");
+          if (form) {
+            form.submit();
+          }
         }, 1500);
+
+        return;
       } else {
         setTimeout(function () {
           unfadeGameArea();

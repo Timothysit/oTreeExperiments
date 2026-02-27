@@ -1,0 +1,29 @@
+{{ block title }}{{ endblock }}
+{{ block content }}
+
+<style>
+  body { font-size: 22px; }
+  .panel {
+    max-width: 720px;
+    margin: 8vh auto 0 auto;
+    padding: 2.5rem 2.5rem;
+    background: rgba(255,255,255,0.95);
+    border-radius: 16px;
+    text-align: center;
+  }
+  .big { font-size: 2rem; font-weight: 700; margin-bottom: 1.5rem; }
+  .line { font-size: 1.4rem; margin: 0.6rem 0; }
+  .total { font-size: 1.6rem; font-weight: 700; margin-top: 1.2rem; }
+</style>
+
+<div class="panel">
+  <div class="big">This is the end of the game</div>
+
+  <div class="line">You have won <strong>{{ part1_points }}</strong> points in Part 1.</div>
+  <div class="line">You have won <strong>{{ part2_points }}</strong> points in Part 2.</div>
+
+  <div class="total">Total: {{ total_points }} points</div>
+
+</div>
+
+{{ endblock }}
