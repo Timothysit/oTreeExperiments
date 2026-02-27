@@ -15,8 +15,12 @@ SESSION_CONFIGS = [
         name='matching_pennies', app_sequence=['mp'], num_demo_participants=1
     ),
     dict(
-        name='matching_pennies_solo_live', app_sequence=['matching_live'], 
-        num_demo_participants=1
+        name='matching_live',
+        display_name='Matching Pennies (live)',
+        app_sequence=['matching_live'],
+        num_demo_participants=2,
+        num_trials_single=100,
+        num_trials_multi=100,
     ),
 ]
 

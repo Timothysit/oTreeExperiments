@@ -4,22 +4,33 @@ import time
 import json 
 from .algorithms import MatchingPennies2, BlockFlipperWithExtension
 
+
+
 class C(BaseConstants):
     NAME_IN_URL = 'matching_live'
     PLAYERS_PER_GROUP = 2
     NUM_ROUNDS = 1  # all 10 trials happen on a single page
-    NUM_TRIALS_SINGLE = 5
-    NUM_TRIALS_MULTI = 5
-    NUM_TRIALS_TOTAL = NUM_TRIALS_SINGLE + NUM_TRIALS_MULTI
+    NUM_TRIALS_SINGLE = 5  # fallback default
+    NUM_TRIALS_MULTI = 5  # fallback default
     # If True: ensure one player gets A and the other gets B (randomly swapped)
     # If False: each player independently random (AA, AB, BA, BB all possible)
-    ENFORCE_ONE_A_ONE_B_PER_GROUP = True
+    ENFORCE_ONE_A_ONE_B_PER_GROUP = False
     REWARD_WIN = 10
     REWARD_LOSS = 0
 
 
 class Subsession(BaseSubsession):
     pass
+
+
+def num_trials_single(player):
+    return int(player.session.config.get("num_trials_single", C.NUM_TRIALS_SINGLE))
+
+def num_trials_multi(player):
+    return int(player.session.config.get("num_trials_multi", C.NUM_TRIALS_MULTI))
+
+def num_trials_total(player):
+    return num_trials_single(player) + num_trials_multi(player)
 
 
 def ensure_single_opponent_assigned(player):
@@ -165,17 +176,22 @@ class Player(BasePlayer):
 
 
 def _phase_and_display_trial(player: Player):
+
+    n_single = num_trials_single(player)
+    n_multi = num_trials_multi(player)
+
+
     # This function controls whether the current trial is single-player or multiplayer
     """Returns (phase, display_trial, display_total)."""
-    if player.current_trial < C.NUM_TRIALS_SINGLE:
-        return "single", player.current_trial + 1, C.NUM_TRIALS_SINGLE
+    if player.current_trial < n_single:
+        return "single", player.current_trial + 1, n_single
     else:
         # trial 11 overall becomes 1 within multiplayer block
-        within = player.current_trial - C.NUM_TRIALS_SINGLE + 1
-        return "multi", within, C.NUM_TRIALS_MULTI
+        within = player.current_trial - n_single + 1
+        return "multi", within, n_multi
 
 def _overall_done(player: Player):
-    return player.current_trial >= C.NUM_TRIALS_TOTAL
+    return player.current_trial >= num_trials_total(player)
 
 
 def live_game(player: Player, data):
@@ -237,7 +253,7 @@ def live_game(player: Player, data):
     player.last_choice = choice
 
     # ---------- Phase 1: single-player ----------
-    if player.current_trial < C.NUM_TRIALS_SINGLE:
+    if player.current_trial < num_trials_single(player):
         g = player.group
         rt_ms = int(data.get("rt_ms", 0))
         player.last_rt_ms = rt_ms
@@ -320,7 +336,7 @@ def live_game(player: Player, data):
         player.current_trial += 1
 
         # Get the total number of points for solo part (round 1)
-        if player.current_trial == C.NUM_TRIALS_SINGLE:
+        if player.current_trial == num_trials_single(player):
             player.part1_points = player.total_points
 
         is_last = _overall_done(player)
@@ -329,8 +345,8 @@ def live_game(player: Player, data):
             player.id_in_group: dict(
                 type="feedback",
                 phase="single",
-                trial=min(player.current_trial, C.NUM_TRIALS_SINGLE),
-                trial_total=C.NUM_TRIALS_SINGLE,
+                trial=min(player.current_trial, num_trials_single(player)),
+                trial_total=num_trials_single(player),
                 reward=reward,
                 total_points=player.total_points,
                 is_last=is_last,
@@ -382,7 +398,7 @@ def live_game(player: Player, data):
     p2.total_points += r2
 
     # current multiplayer trial number (before increment)
-    current_multi_trial = (p1.current_trial - C.NUM_TRIALS_SINGLE) + 1
+    current_multi_trial = (p1.current_trial - num_trials_single(player)) + 1
 
     # Log a single combined row for this multiplayer trial
     row = dict(
@@ -422,14 +438,14 @@ def live_game(player: Player, data):
     # compute next display trial values (for after feedback)
     # (but we send the *current* multiplayer trial number in the message)
     # current multiplayer trial number is: (current_trial_before_increment - 10) + 1
-    current_multi_trial = (p1.current_trial - 1) - C.NUM_TRIALS_SINGLE + 1
+    current_multi_trial = (p1.current_trial - 1) - num_trials_single(player) + 1
 
     return {
         1: dict(
             type="feedback",
             phase="multi",
             trial=current_multi_trial,
-            trial_total=C.NUM_TRIALS_MULTI,
+            trial_total=num_trials_multi(player),
             your_choice=c1,
             other_choice=c2,
             reward=r1,
@@ -441,7 +457,7 @@ def live_game(player: Player, data):
             type="feedback",
             phase="multi",
             trial=current_multi_trial,
-            trial_total=C.NUM_TRIALS_MULTI,
+            trial_total=num_trials_multi(player),
             your_choice=c2,
             other_choice=c1,
             reward=r2,
@@ -458,6 +474,13 @@ class WaitForPair(WaitPage):
 class Game(Page):
     # This tells oTree to use the live_game function for WebSocket messages
     live_method = live_game
+
+    @staticmethod
+    def js_vars(player: Player):
+        return dict(
+            num_trials_single=num_trials_single(player),
+            num_trials_multi=num_trials_multi(player),
+        )
 
 class End(Page):
     def is_displayed(player: Player):
