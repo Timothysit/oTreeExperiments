@@ -263,9 +263,11 @@ def live_game(player: Player, data):
 
         # Decide opponent move
         if opponent_type == "algo_A":
+            # Algo A is matching pennies
             algo = get_single_algo(player)
             opponent_choice = algo.sample()
         elif opponent_type == "algo_B":
+            # Algorithm B is two-armed bandit
             env = get_bandit_env(player)
 
             reward_bin = env.trial(choice)  # 0/1
@@ -493,7 +495,8 @@ class End(Page):
             part1_points=part1,
             part2_points=part2,
             total_points=player.total_points,
+            participant_code=player.participant.code,  # <-- show this on End page
+            survey_url="https://forms.gle/KR7CJY4MENZ5dtX98",  # optional convenience
         )
-
 
 page_sequence = [Game, End]
