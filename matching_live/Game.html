@@ -336,14 +336,12 @@
     if (data.type === "ready") {
 
       gotReady = true;
-      
-      // DEBUG: confirm what phase string you actually receive
+
       console.log("READY:", data.phase, "trial:", data.trial);
 
       trialNumberSpan.textContent = data.trial;
       updatePointsUI(data.phase, data.total_points);
 
-      // Optional: show phase somewhere
       statusText.textContent = (data.phase === "single")
         ? "Single-player block: wait..."
         : "Two-player block: wait...";
@@ -352,77 +350,67 @@
 
     } else if (data.type === "wait_opponent") {
 
-      // You already made your choice in multiplayer; just wait for the other player.
       trialNumberSpan.textContent = data.trial;
-
-      // Update points 
       updatePointsUI(data.phase, data.total_points);
 
-
       setButtonsEnabled(false);
-      // statusText.textContent = "Waiting for the other player...";
       fadeGameArea();
 
     } else if (data.type === "feedback") {
+
       trialNumberSpan.textContent = data.trial;
-      // Update total score
       updatePointsUI(data.phase, data.total_points);
 
+      // --- add artificial delay only in single-player feedback ---
+      const delay_ms = (data.phase === "single" && data.delay_ms != null)
+        ? data.delay_ms
+        : 0;
 
-
-      if (data.phase === "single") {
-        statusText.textContent = "You won " + data.reward + " points";
-
-      } else if (data.phase === "multi") {
-        
-        // real game (same feedback as solo)
-        statusText.textContent = "You won " + data.reward + " points";
-        
-        // for testing only to report opponent choice
-        // data.other_choice is provided in multi phase
-        //statusText.textContent =
-        //  "You chose " + data.your_choice +
-        //  ", other chose " + data.other_choice +
-        //  ". You won " + data.reward + " points";
+      // During the delay, mimic multiplayer waiting
+      if (delay_ms > 0) {
+        statusText.textContent = "Wait...";
+        fadeGameArea();
+        setButtonsEnabled(false);
       }
 
-      // ---- BREAK TRIGGER: after last single-player trial ----
-      if (data.phase === "single" && data.trial === NUM_TRIALS_SINGLE && !breakShown) {
-        breakShown = true;
-        breakActive = true;
-        breakStartTime = performance.now();
+      setTimeout(function () {
+        // Now show feedback
+        statusText.textContent = "You won " + data.reward + " points";
 
-        // Show break overlay after the 1.5s feedback display
-        setTimeout(function () {
-          // hide game + show break
-          gameArea.style.display = "none";
-          breakOverlay.style.display = "flex";
-        }, 1500);
+        // ---- BREAK TRIGGER: after last single-player trial ----
+        if (data.phase === "single" && data.trial === NUM_TRIALS_SINGLE && !breakShown) {
+          breakShown = true;
+          breakActive = true;
+          breakStartTime = performance.now();
 
-        return; // IMPORTANT: don't schedule next startChoicePhase()
-      }
+          // Show break overlay after the 1.5s feedback display
+          setTimeout(function () {
+            gameArea.style.display = "none";
+            breakOverlay.style.display = "flex";
+          }, 1500);
 
-      
-      if (data.is_last) {
-        finished = true;
+          return; // IMPORTANT: don't schedule next startChoicePhase()
+        }
 
-        setTimeout(function () {
-          statusText.textContent = "Game finished. Moving to summary...";
+        if (data.is_last) {
+          finished = true;
 
-          // IMPORTANT: submit the oTree page so it advances to End(Page)
-          const form = document.getElementById("form");
-          if (form) {
-            form.submit();
-          }
-        }, 1500);
+          setTimeout(function () {
+            statusText.textContent = "Game finished. Moving to summary...";
+            const form = document.getElementById("form");
+            if (form) form.submit();
+          }, 1500);
 
-        return;
-      } else {
+          return;
+        }
+
+        // Otherwise continue
         setTimeout(function () {
           unfadeGameArea();
           startChoicePhase();
         }, 1500);
-      }
+
+      }, delay_ms);
     }
   }
 </script>

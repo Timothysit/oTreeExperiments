@@ -10,100 +10,51 @@ class C(BaseConstants):
     NAME_IN_URL = 'matching_live'
     PLAYERS_PER_GROUP = 2
     NUM_ROUNDS = 1  # all 10 trials happen on a single page
-    NUM_TRIALS_SINGLE = 5  # fallback default
-    NUM_TRIALS_MULTI = 5  # fallback default
+    NUM_TRIALS_SINGLE = 400  # fallback default
+    NUM_TRIALS_MULTI = 400  # fallback default
     # If True: ensure one player gets A and the other gets B (randomly swapped)
     # If False: each player independently random (AA, AB, BA, BB all possible)
     ENFORCE_ONE_A_ONE_B_PER_GROUP = False
     REWARD_WIN = 10
     REWARD_LOSS = 0
 
+    SINGLE_FEEDBACK_DELAY_MS_MIN = 50
+    SINGLE_FEEDBACK_DELAY_MS_MAX = 250
+
 
 class Subsession(BaseSubsession):
-    pass
+
+    def creating_session(self):
+        # default mapping so player 2 never races ahead of Setup
+        self.session.vars.setdefault("single_opponent_by_role", {1: "random", 2: "random"})
 
 
 def num_trials_single(player):
+    # Prefer per-group setting from Setup page
+    g = player.group
+    if getattr(g, "num_trials_single", None):
+        return int(g.num_trials_single)
+    # fallback to session config / constants
     return int(player.session.config.get("num_trials_single", C.NUM_TRIALS_SINGLE))
 
 def num_trials_multi(player):
+    g = player.group
+    if getattr(g, "num_trials_multi", None):
+        return int(g.num_trials_multi)
     return int(player.session.config.get("num_trials_multi", C.NUM_TRIALS_MULTI))
 
 def num_trials_total(player):
     return num_trials_single(player) + num_trials_multi(player)
 
 
-def ensure_single_opponent_assigned(player):
-    """
-    Assigns algo_A/algo_B ONCE per participant and stores in participant.vars.
-
-    Modes (controlled by C.ENFORCE_ONE_A_ONE_B_PER_GROUP):
-      - True: group-level split (one A, one B) with random swap
-      - False: independent random per player (AA/AB/BA/BB possible)
-    """
-    pv = player.participant.vars
-    if "single_opponent_type" in pv:
-        pv.setdefault("single_opponent_id", f'{pv["single_opponent_type"]}_v1')
-        return pv["single_opponent_type"], pv["single_opponent_id"]
-
+def get_single_opponent_for_player(player):
     g = player.group
-
-    if C.ENFORCE_ONE_A_ONE_B_PER_GROUP:
-        # set once per group: 0 => p1=A,p2=B ; 1 => p1=B,p2=A
-        if getattr(g, "algo_split_flip", None) is None:
-            # if you didn't define it as a model field, just store in session vars:
-            # but better is to define Group.algo_split_flip as IntegerField
-            pass
-
-        if g.algo_split_flip == -1:
-            g.algo_split_flip = random.randint(0, 1)
-
-        # decide A/B based on flip + role
-        if (player.id_in_group == 1 and g.algo_split_flip == 0) or (player.id_in_group == 2 and g.algo_split_flip == 1):
-            opp = "algo_A"
-        else:
-            opp = "algo_B"
+    if player.id_in_group == 1:
+        opp = g.single_opponent_p1_final or "algo_A"
     else:
-        # fully independent random
-        opp = random.choice(["algo_A", "algo_B"])
+        opp = g.single_opponent_p2_final or "algo_A"
+    return opp, f"{opp}_v1"
 
-    pv["single_opponent_type"] = opp
-    pv["single_opponent_id"] = f"{opp}_v1"
-    return pv["single_opponent_type"], pv["single_opponent_id"]
-
-
-def assign_single_opponents_for_pair(group):
-    """
-    Assigns single-player opponent types for BOTH players in this group.
-    If FORCE_SPLIT_ALGOS_IN_PAIR=True, ensures one is algo_A and one is algo_B.
-    Stores results in participant.vars.
-    """
-    p1 = group.get_player_by_id(1)
-    p2 = group.get_player_by_id(2)
-
-    # If already assigned for both, do nothing
-    if ("single_opponent_type" in p1.participant.vars) and ("single_opponent_type" in p2.participant.vars):
-        return
-
-    if C.FORCE_SPLIT_ALGOS_IN_PAIR:
-        # Randomize which player gets which algorithm
-        if random.random() < 0.5:
-            a_player, b_player = p1, p2
-        else:
-            a_player, b_player = p2, p1
-
-        a_player.participant.vars["single_opponent_type"] = "algo_A"
-        a_player.participant.vars["single_opponent_id"] = "algo_A_v1"
-
-        b_player.participant.vars["single_opponent_type"] = "algo_B"
-        b_player.participant.vars["single_opponent_id"] = "algo_B_v1"
-
-    else:
-        # Old behaviour: independent random assignment
-        for pl in (p1, p2):
-            if "single_opponent_type" not in pl.participant.vars:
-                pl.participant.vars["single_opponent_type"] = random.choice(["algo_A", "algo_B"])
-                pl.participant.vars["single_opponent_id"] = f'{pl.participant.vars["single_opponent_type"]}_v1'
 
 def get_single_algo(player):
     """
@@ -142,6 +93,29 @@ class Group(BaseGroup):
     started = models.BooleanField(initial=False)
 
     algo_split_flip = models.IntegerField(initial=-1)  # -1 unset, else 0/1
+
+
+    single_opponent_p1 = models.StringField(
+        choices=[["random", "Random"], ["algo_A", "Algorithm A"], ["algo_B", "Algorithm B"]],
+        initial="random",
+        blank=False,
+        widget=widgets.RadioSelect,
+    )
+    single_opponent_p2 = models.StringField(
+        choices=[["random", "Random"], ["algo_A", "Algorithm A"], ["algo_B", "Algorithm B"]],
+        initial="random",
+        blank=False,
+        widget=widgets.RadioSelect,
+    )
+
+    # Trial counts set in Setup (per group)
+    num_trials_single = models.IntegerField(min=1, max=500, initial=C.NUM_TRIALS_SINGLE)
+    num_trials_multi = models.IntegerField(min=1, max=500, initial=C.NUM_TRIALS_MULTI)
+    
+
+    # store resolved fixed choices actually used
+    single_opponent_p1_final = models.StringField(blank=True)
+    single_opponent_p2_final = models.StringField(blank=True)
     
 
     # temporary storage for multi-player phase choices
@@ -179,6 +153,7 @@ def _phase_and_display_trial(player: Player):
 
     n_single = num_trials_single(player)
     n_multi = num_trials_multi(player)
+
 
 
     # This function controls whether the current trial is single-player or multiplayer
@@ -226,7 +201,7 @@ def live_game(player: Player, data):
                 p.last_rt_ms = 0
 
         # assign algo for THIS player (role-based or randomized)
-        opp_type, opp_id = ensure_single_opponent_assigned(player)
+        opp_type, opp_id = get_single_opponent_for_player(player)
 
         if opp_type == "algo_A":
             _ = get_single_algo(player)
@@ -259,7 +234,7 @@ def live_game(player: Player, data):
         player.last_rt_ms = rt_ms
 
         # Decide opponent type for this block (algo_A/algo_B)
-        opponent_type, opponent_id = ensure_single_opponent_assigned(player)
+        opponent_type, opponent_id = get_single_opponent_for_player(player)
 
         # Decide opponent move
         if opponent_type == "algo_A":
@@ -306,6 +281,12 @@ def live_game(player: Player, data):
         if opponent_type == "algo_A":
             g.algo_state_json = json.dumps(algo.to_dict())
 
+        # Random delay
+        delay_ms = random.randint(
+            C.SINGLE_FEEDBACK_DELAY_MS_MIN,
+            C.SINGLE_FEEDBACK_DELAY_MS_MAX
+        )
+
         # Log BEFORE increment (trial index is stable)
         row = dict(
             overall_trial=player.current_trial + 1,   # 1-based overall
@@ -320,6 +301,7 @@ def live_game(player: Player, data):
             reward=reward,
             total_points_after=player.total_points,
             server_ts=time.time(),
+            feedback_delay_ms=delay_ms,
         )
 
         if opponent_type == "algo_B":
@@ -342,6 +324,7 @@ def live_game(player: Player, data):
             player.part1_points = player.total_points
 
         is_last = _overall_done(player)
+        
 
         return {
             player.id_in_group: dict(
@@ -352,6 +335,7 @@ def live_game(player: Player, data):
                 reward=reward,
                 total_points=player.total_points,
                 is_last=is_last,
+                delay_ms=delay_ms,
             )
         }
 
@@ -473,6 +457,30 @@ class WaitForPair(WaitPage):
     group_by_arrival_time = True
 
 
+class Setup(Page):
+    form_model = "group"
+    form_fields = ["single_opponent_p1", "single_opponent_p2", "num_trials_single", "num_trials_multi"]
+
+    @staticmethod
+    def is_displayed(player):
+        # only show to player 1 (once per group)
+        return player.id_in_group == 1
+
+    @staticmethod
+    def before_next_page(player, timeout_happened):
+        g = player.group
+
+        def resolve(mode):
+            return random.choice(["algo_A", "algo_B"]) if mode == "random" else mode
+
+        g.single_opponent_p1_final = resolve(g.single_opponent_p1)
+        g.single_opponent_p2_final = resolve(g.single_opponent_p2)
+
+class WaitAfterSetup(WaitPage):
+    @staticmethod
+    def is_displayed(player):
+        return True
+
 class Game(Page):
     # This tells oTree to use the live_game function for WebSocket messages
     live_method = live_game
@@ -499,4 +507,4 @@ class End(Page):
             survey_url="https://forms.gle/KR7CJY4MENZ5dtX98",  # optional convenience
         )
 
-page_sequence = [Game, End]
+page_sequence = [Setup, WaitAfterSetup, Game, End]

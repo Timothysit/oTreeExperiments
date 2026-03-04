@@ -3,6 +3,14 @@ from os import environ
 
 SESSION_CONFIGS = [
     dict(
+        name='matching_live',
+        display_name='Matching Pennies (live)',
+        app_sequence=['matching_live'],
+        num_demo_participants=2,
+        num_trials_single=100,
+        num_trials_multi=100,
+    ),
+    dict(
         name='guess_two_thirds',
         display_name="Guess 2/3 of the Average",
         app_sequence=['guess_two_thirds', 'payment_info'],
@@ -14,14 +22,6 @@ SESSION_CONFIGS = [
     dict(
         name='matching_pennies', app_sequence=['mp'], num_demo_participants=1
     ),
-    dict(
-        name='matching_live',
-        display_name='Matching Pennies (live)',
-        app_sequence=['matching_live'],
-        num_demo_participants=2,
-        num_trials_single=100,
-        num_trials_multi=100,
-    ),
 ]
 
 # if you set a property in SESSION_CONFIG_DEFAULTS, it will be inherited by all configs
@@ -31,6 +31,11 @@ SESSION_CONFIGS = [
 
 SESSION_CONFIG_DEFAULTS = dict(
     real_world_currency_per_point=1.00, participation_fee=0.00, doc=""
+)
+
+SESSION_CONFIG_CHOICES = dict(
+    single_opponent_p1=["random", "algo_A", "algo_B"],
+    single_opponent_p2=["random", "algo_A", "algo_B"],
 )
 
 PARTICIPANT_FIELDS = []
