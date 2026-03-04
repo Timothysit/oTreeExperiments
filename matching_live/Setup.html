@@ -1,0 +1,24 @@
+{{ block title }}
+Game Setup
+{{ endblock }}
+
+{{ block content }}
+
+<p>Select opponent algorithm for each player in Part 1.</p>
+
+<div style="margin-bottom: 2rem;">
+  <label><strong>Player 1 opponent:</strong></label>
+  {{ form.single_opponent_p1 }}
+</div>
+
+<div style="margin-bottom: 2rem;">
+  <label><strong>Player 2 opponent:</strong></label>
+  {{ form.single_opponent_p2 }}
+</div>
+
+<p><strong>Number of trials (Part 1):</strong> {{ form.num_trials_single }}</p>
+<p><strong>Number of trials (Part 2):</strong> {{ form.num_trials_multi }}</p>
+
+<button class="btn btn-primary">Start Experiment</button>
+
+{{ endblock }}
