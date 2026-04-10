@@ -18,8 +18,9 @@ class C(BaseConstants):
     REWARD_WIN = 10
     REWARD_LOSS = 0
 
+    # Original delay range (pre 2026-04-10 was 50 - 250 ms)
     SINGLE_FEEDBACK_DELAY_MS_MIN = 50
-    SINGLE_FEEDBACK_DELAY_MS_MAX = 250
+    SINGLE_FEEDBACK_DELAY_MS_MAX = 1000
 
 
 class Subsession(BaseSubsession):
