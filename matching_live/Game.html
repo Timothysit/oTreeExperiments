@@ -697,6 +697,21 @@
         statusText.textContent = "You won " + data.reward + " points";
         animateRewardEffects(data.reward, lastSubmittedChoice);
 
+
+        // feedback is now visible on screen
+        if (data.phase === "single") {
+          liveSend({
+            type: "single_feedback_shown",
+            overall_trial: data.trial,
+            block: "single",
+            block_trial: data.trial,
+            reward: data.reward,
+            total_points: data.total_points,
+            choice: lastSubmittedChoice,
+            browser_feedback_ts: performance.now(),
+          });
+        }
+
         if (data.phase === "single" && data.trial === NUM_TRIALS_SINGLE && !breakShown) {
           breakShown = true;
           breakActive = true;
@@ -709,6 +724,8 @@
 
           return;
         }
+
+        
 
         if (data.is_last) {
           finished = true;

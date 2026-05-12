@@ -3,7 +3,7 @@ import random
 import time 
 import json 
 from .algorithms import MatchingPennies2, BlockFlipperWithExtension
-
+from .pupil_sync import send_pupil_annotation
 
 
 class C(BaseConstants):
@@ -137,6 +137,16 @@ class Group(BaseGroup):
         log = json.loads(self.trial_log_json or '[]')
         log.append(row)
         self.trial_log_json = json.dumps(log)
+
+    def update_last_matching_trial(self, block, block_trial, updates: dict):
+        log = json.loads(self.trial_log_json or "[]")
+
+        for row in reversed(log):
+            if row.get("block") == block and row.get("block_trial") == block_trial:
+                row.update(updates)
+                break
+
+        self.trial_log_json = json.dumps(log)
     
 
 
@@ -209,6 +219,14 @@ def live_game(player: Player, data):
 
         phase, disp_trial, disp_total = _phase_and_display_trial(player)
 
+        send_pupil_annotation(
+            "task_start",
+            participant_code=player.participant.code,
+            player_id=player.id_in_group,
+            phase=phase,
+            trial=disp_trial,
+        )
+
         return {
             player.id_in_group: dict(
                 type="ready",
@@ -216,6 +234,37 @@ def live_game(player: Player, data):
                 trial=disp_trial,
                 trial_total=disp_total,
                 total_points=player.total_points,
+            )
+        }
+    
+    if msg_type == "single_feedback_shown":
+        sync_info = send_pupil_annotation(
+            "single_feedback_shown",
+            participant_code=player.participant.code,
+            player_id=player.id_in_group,
+            overall_trial=data.get("overall_trial"),
+            block=data.get("block", "single"),
+            block_trial=data.get("block_trial"),
+            choice=data.get("choice"),
+            reward=data.get("reward"),
+            total_points=data.get("total_points"),
+            browser_feedback_ts=data.get("browser_feedback_ts"),
+            server_ts=time.time(),
+        )
+
+        player.group.update_last_matching_trial(
+            block="single",
+            block_trial=data.get("block_trial"),
+            updates={
+                "pupil_single_feedback_shown_sync": sync_info,
+                "browser_feedback_ts": data.get("browser_feedback_ts"),
+            },
+        )
+
+        return {
+            player.id_in_group: dict(
+                type="feedback_shown_ack",
+                pupil_sync=sync_info,
             )
         }
     
@@ -233,6 +282,18 @@ def live_game(player: Player, data):
         g = player.group
         rt_ms = int(data.get("rt_ms", 0))
         player.last_rt_ms = rt_ms
+
+        # Send pupil annotation 
+        single_choice_sync = send_pupil_annotation(
+            "single_choice",
+            participant_code=player.participant.code,
+            player_id=player.id_in_group,
+            overall_trial=player.current_trial + 1,
+            block="single",
+            block_trial=player.current_trial + 1,
+            choice=choice,
+            rt_ms=rt_ms,
+        )
 
         # Decide opponent type for this block (algo_A/algo_B)
         opponent_type, opponent_id = get_single_opponent_for_player(player)
@@ -303,6 +364,7 @@ def live_game(player: Player, data):
             total_points_after=player.total_points,
             server_ts=time.time(),
             feedback_delay_ms=delay_ms,
+            pupil_single_choice_sync=single_choice_sync,
         )
 
         if opponent_type == "algo_B":
@@ -323,6 +385,14 @@ def live_game(player: Player, data):
         # Get the total number of points for solo part (round 1)
         if player.current_trial == num_trials_single(player):
             player.part1_points = player.total_points
+
+            send_pupil_annotation(
+                    "single_block_end",
+                    participant_code=player.participant.code,
+                    player_id=player.id_in_group,
+                    total_points=player.total_points,
+                    num_trials_single=num_trials_single(player),
+            )
 
         is_last = _overall_done(player)
         
@@ -351,6 +421,17 @@ def live_game(player: Player, data):
     else:
         g.p2_choice = choice
         g.p2_rt_ms = rt_ms
+
+    send_pupil_annotation(
+        "multi_choice_submitted",
+        participant_code=player.participant.code,
+        player_id=player.id_in_group,
+        overall_trial=player.current_trial + 1,
+        block="multi",
+        block_trial=(player.current_trial - num_trials_single(player)) + 1,
+        choice=choice,
+        rt_ms=rt_ms,
+    )
 
     other = player.get_others_in_group()[0]
 
@@ -387,6 +468,22 @@ def live_game(player: Player, data):
     # current multiplayer trial number (before increment)
     current_multi_trial = (p1.current_trial - num_trials_single(player)) + 1
 
+    pupil_sync = send_pupil_annotation(
+        "multi_trial_outcome",
+        overall_trial=p1.current_trial + 1,
+        block="multi",
+        block_trial=current_multi_trial,
+        p1_code=p1.participant.code,
+        p2_code=p2.participant.code,
+        p1_choice=c1,
+        p2_choice=c2,
+        p1_rt_ms=rt1,
+        p2_rt_ms=rt2,
+        p1_reward=r1,
+        p2_reward=r2,
+        winner=winner,
+    )
+
     # Log a single combined row for this multiplayer trial
     row = dict(
         overall_trial=p1.current_trial + 1,  # both players share the same overall trial index
@@ -405,6 +502,7 @@ def live_game(player: Player, data):
         p1_total_points_after=p1.total_points,
         p2_total_points_after=p2.total_points,
         server_ts=time.time(),
+        pupil_multi_outcome_sync=pupil_sync,
     )
     g.append_trial(row)
 
