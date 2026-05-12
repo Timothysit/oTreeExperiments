@@ -290,6 +290,29 @@
 
   const NUM_TRIALS_SINGLE = js_vars.num_trials_single;
 
+  // =========================
+  // Pupil bridge helper
+  // =========================
+
+  async function sendPupilAnnotation(label, fields = {}) {
+    try {
+      await fetch("http://127.0.0.1:8765/annotation", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          label: label,
+          browser_ts: performance.now(),
+          ...fields,
+        }),
+      });
+    } catch (err) {
+      console.log("Pupil bridge unavailable", err);
+    }
+  }
+
+
   let waitingForChoice = false;
   let finished = false;
   let choiceStartMs = null;
@@ -388,6 +411,15 @@
   lastChoiceCursorY = vcy;
 
   const rt_ms = (choiceStartMs === null) ? null : Math.round(performance.now() - choiceStartMs);
+  
+  
+  sendPupilAnnotation("choice_submitted", {
+    choice: choice,
+    rt_ms: rt_ms,
+    cursor_x: lastChoiceCursorX,
+    cursor_y: lastChoiceCursorY,
+  });
+  
   liveSend({ type: "choice", choice: choice, rt_ms: rt_ms });
   }
 
@@ -614,6 +646,12 @@
       leftZone.classList.remove("active");
       rightZone.classList.remove("active");
 
+      // Trial now starting, send to pupil annotation
+      sendPupilAnnotation("trial_start", {
+        displayed_trial: trialNumberSpan.textContent,
+        phase: part1TotalPoints === null ? "single" : "multi",
+      });
+
       choiceStartMs = performance.now();
       waitingForChoice = true;
     }, 2000);
@@ -700,15 +738,13 @@
 
         // feedback is now visible on screen
         if (data.phase === "single") {
-          liveSend({
-            type: "single_feedback_shown",
+          sendPupilAnnotation("single_feedback_shown", {
             overall_trial: data.trial,
             block: "single",
             block_trial: data.trial,
             reward: data.reward,
             total_points: data.total_points,
             choice: lastSubmittedChoice,
-            browser_feedback_ts: performance.now(),
           });
         }
 
