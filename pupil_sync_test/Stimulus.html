@@ -1,0 +1,143 @@
+{{ block title }}
+Pupil sync test
+{{ endblock }}
+
+{{ block content }}
+
+<style>
+  body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  #stim-screen {
+    position: fixed;
+    inset: 0;
+    background: gray;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 36px;
+    font-family: sans-serif;
+    color: red;
+  }
+
+  #start-button {
+    font-size: 28px;
+    padding: 1rem 2rem;
+    z-index: 10;
+  }
+
+  #status {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    color: red;
+    font-size: 18px;
+    font-family: monospace;
+    z-index: 10;
+  }
+</style>
+
+<div id="stim-screen">
+  <button id="start-button" type="button">Start sync test</button>
+</div>
+
+<div id="status"></div>
+
+<script>
+  const stimScreen = document.getElementById("stim-screen");
+  const startButton = document.getElementById("start-button");
+  const statusText = document.getElementById("status");
+
+  const stimSequence = js_vars.stim_sequence;
+  const pupilAnnotationUrl = js_vars.pupil_annotation_url;
+
+  let syncLog = [];
+
+  async function sendPupilAnnotation(label, extra = {}) {
+    const payload = {
+      label: label,
+      timestamp: performance.now(),
+      ...extra,
+    };
+
+    try {
+      await fetch(pupilAnnotationUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+      return true;
+    } catch (err) {
+      console.warn("Pupil annotation failed; continuing without it.", err);
+      return false;
+    }
+  }
+
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  async function runStimulusSequence() {
+    startButton.style.display = "none";
+
+    const experimentStartBrowserTs = performance.now();
+
+    await sendPupilAnnotation("sync_test_start", {
+      event_type: "experiment_start",
+    });
+
+    for (let i = 0; i < stimSequence.length; i++) {
+      const stim = stimSequence[i];
+
+      const onsetBrowserTs = performance.now();
+      const elapsedFromStartMs = onsetBrowserTs - experimentStartBrowserTs;
+
+      stimScreen.style.background = stim.color;
+
+      const label = `stim_${i + 1}_${stim.color}`;
+
+      const pupilOk = await sendPupilAnnotation(label, {
+        event_type: "stimulus_onset",
+        stim_index: i + 1,
+        color: stim.color,
+        duration_ms: stim.duration_ms,
+        elapsed_from_start_ms: elapsedFromStartMs,
+      });
+
+      syncLog.push({
+        stim_index: i + 1,
+        color: stim.color,
+        duration_ms: stim.duration_ms,
+        onset_browser_ts: onsetBrowserTs,
+        elapsed_from_start_ms: elapsedFromStartMs,
+        pupil_annotation_sent: pupilOk,
+      });
+
+      statusText.textContent =
+        `Stim ${i + 1}/${stimSequence.length}: ${stim.color}, ${stim.duration_ms} ms`;
+
+      await sleep(stim.duration_ms);
+    }
+
+    stimScreen.style.background = "gray";
+    statusText.textContent = "Finished";
+
+    await sendPupilAnnotation("sync_test_end", {
+      event_type: "experiment_end",
+    });
+
+    liveSend({
+      type: "sync_log",
+      log: syncLog,
+    });
+  }
+
+  startButton.addEventListener("click", runStimulusSequence);
+</script>
+
+{{ endblock }}

@@ -22,6 +22,12 @@ SESSION_CONFIGS = [
     dict(
         name='matching_pennies', app_sequence=['mp'], num_demo_participants=1
     ),
+    dict(
+        name="pupil_sync_test",
+        display_name="Pupil Sync Test",
+        app_sequence=["pupil_sync_test"],
+        num_demo_participants=1,
+    ),
 ]
 
 # if you set a property in SESSION_CONFIG_DEFAULTS, it will be inherited by all configs
