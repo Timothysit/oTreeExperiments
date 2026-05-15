@@ -10,12 +10,12 @@ class C(BaseConstants):
 
     # Durations in milliseconds
     STIM_SEQUENCE = [
-        {"color": "black", "duration_ms": 2000},
-        {"color": "white", "duration_ms": 1000},
-        {"color": "black", "duration_ms": 3000},
-        {"color": "white", "duration_ms": 1500},
-        {"color": "black", "duration_ms": 1000},
-        {"color": "white", "duration_ms": 3000},
+        {"color": "black", "duration_ms": 7000},
+        {"color": "white", "duration_ms": 5000},
+        {"color": "black", "duration_ms": 8000},
+        {"color": "white", "duration_ms": 6500},
+        {"color": "black", "duration_ms": 6000},
+        {"color": "white", "duration_ms": 9000},
     ]
 
 
@@ -31,6 +31,12 @@ class Player(BasePlayer):
     sync_log_json = models.LongStringField(blank=True)
 
 
+def live_stimulus(player, data):
+    if data.get("type") == "sync_log":
+        player.sync_log_json = json.dumps(data.get("log", []))
+
+    return {player.id_in_group: dict(status="ok", server_ts=time.time())}
+
 class Stimulus(Page):
     live_method = "live_stimulus"
 
@@ -40,13 +46,6 @@ class Stimulus(Page):
             stim_sequence=C.STIM_SEQUENCE,
             pupil_annotation_url="http://127.0.0.1:5000/annotation",
         )
-
-    @staticmethod
-    def live_stimulus(player, data):
-        if data.get("type") == "sync_log":
-            player.sync_log_json = json.dumps(data.get("log", []))
-
-        return {player.id_in_group: dict(status="ok", server_ts=time.time())}
 
 
 page_sequence = [Stimulus]
