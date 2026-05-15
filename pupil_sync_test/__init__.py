@@ -44,7 +44,8 @@ class Stimulus(Page):
     def js_vars(player):
         return dict(
             stim_sequence=C.STIM_SEQUENCE,
-            pupil_annotation_url="http://127.0.0.1:5000/annotation",
+            pupil_annotation_url="http://127.0.0.1:8765/annotation",
+            participant_code=player.participant.code,
         )
 
 

@@ -56,25 +56,24 @@ Pupil sync test
 
   let syncLog = [];
 
-  async function sendPupilAnnotation(label, extra = {}) {
-    const payload = {
-      label: label,
-      timestamp: performance.now(),
-      ...extra,
-    };
-
+  async function sendPupilAnnotation(label, fields = {}) {
     try {
-      await fetch(pupilAnnotationUrl, {
+    await fetch(js_vars.pupil_annotation_url, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
+        "Content-Type": "application/json",
         },
-        body: JSON.stringify(payload),
-      });
-      return true;
+        body: JSON.stringify({
+        label: label,
+        browser_ts: performance.now(),
+        participant_code: js_vars.participant_code,
+        ...fields,
+        }),
+    });
+    return true;
     } catch (err) {
-      console.warn("Pupil annotation failed; continuing without it.", err);
-      return false;
+    console.log("Pupil bridge unavailable", err);
+    return false;
     }
   }
 
@@ -101,22 +100,22 @@ Pupil sync test
 
       const label = `stim_${i + 1}_${stim.color}`;
 
-      const pupilOk = await sendPupilAnnotation(label, {
-        event_type: "stimulus_onset",
+      const pupilOk = await sendPupilAnnotation("luminance_stimulus_onset", {
         stim_index: i + 1,
         color: stim.color,
         duration_ms: stim.duration_ms,
+        onset_browser_ts: onsetBrowserTs,
         elapsed_from_start_ms: elapsedFromStartMs,
-      });
+    });
 
-      syncLog.push({
+    syncLog.push({
         stim_index: i + 1,
         color: stim.color,
         duration_ms: stim.duration_ms,
         onset_browser_ts: onsetBrowserTs,
         elapsed_from_start_ms: elapsedFromStartMs,
         pupil_annotation_sent: pupilOk,
-      });
+    });
 
       statusText.textContent =
         `Stim ${i + 1}/${stimSequence.length}: ${stim.color}, ${stim.duration_ms} ms`;
