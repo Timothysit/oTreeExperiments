@@ -2,7 +2,16 @@
 
 {{ block content }}
 
+
 <style>
+
+  :root {
+  --right-color: #F45B69;
+  --left-color: #2594E8;   /* darker blue, closer luminance to pink */
+  --reward-color: #D08A00;  /* darker amber */
+  --noreward-color: #8A8A8A;
+  }
+
   body {
     font-size: 22px;
   }
@@ -32,7 +41,7 @@
   #cursor-task {
     position: fixed;
     inset: 0;
-    display: none;
+    display: block;
     z-index: 2;
     pointer-events: none; /* visual only */
   }
@@ -49,22 +58,27 @@
     font-weight: bold;
     color: white;
     border: none;
-    opacity: 0.75;  
+    opacity: 0.35;  
     transition: opacity 0.2s ease, background 0.2s ease;
+  }
+
+  #cursor-task.choice-enabled .choice-zone {
+    opacity: 0.5;
   }
 
   .choice-zone.active {
     opacity: 0.6;
   }
 
+
   #left-zone {
     left: 0;
-    background: #F45B69;
+    background: var(--left-color);
   }
 
   #right-zone {
     right: 0;
-    background: #2A9DF4;
+    background: var(--right-color);
   }
 
   #center-marker {
@@ -132,9 +146,7 @@
     font-size: 7.2rem;
     font-weight: 800;
     color: #f4b400;
-    text-shadow:
-      0 0 6px rgba(255,255,255,0.85),
-      0 0 12px rgba(244,180,0,0.35);
+    text-shadow: none;
     opacity: 0;
     transform: translate(-50%, -50%) scale(0.8);
     will-change: transform, opacity;
@@ -146,9 +158,7 @@
   font-size: 7.2rem;
   font-weight: 800;
   color: rgba(120, 120, 120, 0.9);
-  text-shadow:
-    0 0 8px rgba(255,255,255,0.6),
-    0 0 16px rgba(120,120,120,0.18);
+  text-shadow: none;
   opacity: 0;
   transform: translate(-50%, -50%) scale(1);
   will-change: transform, opacity;
@@ -347,7 +357,13 @@
   }
 
   function showCursorTask(show) {
-    cursorTask.style.display = show ? "block" : "none";
+    cursorTask.style.display = "block";
+
+    if (show) {
+      cursorTask.classList.add("choice-enabled");
+    } else {
+      cursorTask.classList.remove("choice-enabled");
+    }
   }
 
   function requestPointerLock() {
@@ -425,9 +441,9 @@
 
   /* ---------- Reward effects ---------- */
   function getChoiceColor(choice) {
-    if (choice === "L") return "#F45B69";
-    if (choice === "R") return "#2A9DF4";
-    return "#f4b400";
+    if (choice === "L") return "var(--left-color)";
+    if (choice === "R") return "var(--right-color)";
+    return "var(--reward-color)";
   }
 
   function animateRewardEffects(reward, choice) {
@@ -447,9 +463,10 @@
 
     if (reward && reward > 0) {
       spawnFloatingRewardText(cx, cy - 20, reward, color);
-      spawnParticleBurst(cx, cy, color);
+      spawnParticleBurst(cx, cy, color, true);
     } else {
       spawnNoRewardText(cx, cy + 10);
+      spawnParticleBurst(cx, cy, "var(--noreward-color)", false);
     }
   }
   
@@ -496,42 +513,39 @@
     setTimeout(() => el.remove(), duration + 50);
   }
 
-  function spawnParticleBurst(x, y, color) {
-    const particleCount = 14 + Math.floor(Math.random() * 8);
+  function spawnParticleBurst(x, y, color, rewarded = true) {
+    const particleCount = 16;
+    const duration = 900;
 
     for (let i = 0; i < particleCount; i++) {
       const p = document.createElement("div");
       p.className = "reward-particle";
 
-      const size = 18 + Math.random() * 30;
-      const angle = Math.random() * Math.PI * 2;
-      const distance = 120 + Math.random() * 270;
-      const dx = Math.cos(angle) * distance;
-      const dy = Math.sin(angle) * distance;
-      const duration = 900 + Math.random() * 450;
+      const size = 20;
+      const angle = (i / particleCount) * Math.PI * 2;
+      const distance = rewarded ? 180 : 120;
 
-      const rand = Math.random();
-      let particleColor = color;
-      if (rand < 0.25) particleColor = "#ffffff";
-      else if (rand < 0.45) particleColor = "#f4b400";
+      const dx = Math.cos(angle) * distance;
+      const dy = Math.sin(angle) * distance * (rewarded ? 1 : -0.6);
 
       p.style.left = `${x}px`;
       p.style.top = `${y}px`;
       p.style.width = `${size}px`;
       p.style.height = `${size}px`;
-      p.style.background = particleColor;
+      p.style.background = rewarded ? color : "var(--noreward-color)";
+      p.style.opacity = 0;
 
       rewardEffects.appendChild(p);
 
       p.animate([
         {
           opacity: 0,
-          transform: "translate(-50%, -50%) scale(0.4)"
+          transform: "translate(-50%, -50%) scale(0.5)"
         },
         {
-          opacity: 1,
+          opacity: 0.55,
           transform: "translate(-50%, -50%) scale(1)",
-          offset: 0.15
+          offset: 0.2
         },
         {
           opacity: 0,
@@ -539,7 +553,7 @@
         }
       ], {
         duration: duration,
-        easing: "cubic-bezier(0.15, 0.7, 0.3, 1)",
+        easing: "cubic-bezier(0.2, 0.7, 0.3, 1)",
         fill: "forwards"
       });
 
@@ -553,36 +567,34 @@
     el.textContent = "0";
     el.style.left = `${x}px`;
     el.style.top = `${y}px`;
+    el.style.color = "var(--noreward-color)";
 
-    const driftX = (Math.random() - 0.5) * 50;
-    const driftY = 90 + Math.random() * 70;   // downward motion
-    const finalScale = 0.45 + Math.random() * 0.15;
-    const duration = 850 + Math.random() * 250;
+    const duration = 1100;
 
     rewardEffects.appendChild(el);
 
     el.animate([
       {
         opacity: 0,
-        transform: "translate(-50%, -50%) scale(1.05)"
+        transform: "translate(-50%, -50%) scale(0.8)"
       },
       {
-        opacity: 0.85,
-        transform: "translate(-50%, -50%) scale(1)",
-        offset: 0.15
+        opacity: 0.9,
+        transform: "translate(-50%, -50%) scale(1.15)",
+        offset: 0.2
       },
       {
-        opacity: 0.6,
-        transform: `translate(calc(-50% + ${driftX * 0.4}px), calc(-50% + ${driftY * 0.4}px)) scale(0.8)`,
-        offset: 0.6
+        opacity: 0.9,
+        transform: "translate(-50%, -30%) scale(1.0)",
+        offset: 0.65
       },
       {
         opacity: 0,
-        transform: `translate(calc(-50% + ${driftX}px), calc(-50% + ${driftY}px)) scale(${finalScale})`
+        transform: "translate(-50%, -10%) scale(0.75)"
       }
     ], {
       duration: duration,
-      easing: "cubic-bezier(0.2, 0.7, 0.3, 1)",
+      easing: "cubic-bezier(0.22, 0.8, 0.2, 1)",
       fill: "forwards"
     });
 
@@ -737,16 +749,14 @@
 
 
         // feedback is now visible on screen
-        if (data.phase === "single") {
-          sendPupilAnnotation("single_feedback_shown", {
-            overall_trial: data.trial,
-            block: "single",
-            block_trial: data.trial,
-            reward: data.reward,
-            total_points: data.total_points,
-            choice: lastSubmittedChoice,
-          });
-        }
+        sendPupilAnnotation("feedback_shown", {
+          overall_trial: data.trial,
+          block: data.phase,
+          block_trial: data.trial,
+          reward: data.reward,
+          total_points: data.total_points,
+          choice: lastSubmittedChoice,
+        });
 
         if (data.phase === "single" && data.trial === NUM_TRIALS_SINGLE && !breakShown) {
           breakShown = true;
