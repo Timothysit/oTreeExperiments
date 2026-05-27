@@ -763,7 +763,19 @@
           breakActive = true;
           breakStartTime = performance.now();
 
+          if (part1TotalPoints === null) {
+            part1TotalPoints = data.total_points;
+            part1Value.textContent = part1TotalPoints;
+          }
+
           setTimeout(function () {
+            if (document.exitPointerLock) {
+              document.exitPointerLock();
+            }
+
+            waitingForChoice = false;
+            showCursorTask(false);
+
             gameArea.style.display = "none";
             breakOverlay.style.display = "flex";
           }, 1500);
