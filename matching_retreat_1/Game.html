@@ -1,0 +1,702 @@
+{{ block title }}{{ endblock }}
+
+{{ block content }}
+
+<style>
+  :root {
+    --right-color: #F45B69;
+    --left-color: #2594E8;
+    --reward-color: #D08A00;
+    --noreward-color: #8A8A8A;
+    --opponent-cursor-color: #111111;
+  }
+
+  body {
+    font-size: 22px;
+  }
+
+  #game-area {
+    margin-top: 5rem;
+  }
+
+  #status-text {
+    font-size: 2rem;
+    font-weight: 600;
+  }
+
+  #intro-overlay p {
+    font-size: 1.4rem;
+    line-height: 1.6;
+  }
+
+  #game-area.faded {
+    opacity: 0.4;
+    filter: grayscale(70%);
+    pointer-events: none;
+    transition: opacity 0.3s ease, filter 0.3s ease;
+  }
+
+  #cursor-task {
+    position: fixed;
+    inset: 0;
+    display: block;
+    z-index: 2;
+    pointer-events: none;
+  }
+
+  .choice-zone {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 20vw;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
+    font-weight: bold;
+    color: white;
+    border: none;
+    opacity: 0.35;
+    transition: opacity 0.2s ease, background 0.2s ease;
+  }
+
+  #cursor-task.choice-enabled .choice-zone {
+    opacity: 0.5;
+  }
+
+  .choice-zone.active {
+    opacity: 0.6;
+  }
+
+  #left-zone {
+    left: 0;
+    background: var(--left-color);
+  }
+
+  #right-zone {
+    right: 0;
+    background: var(--right-color);
+  }
+
+  #center-marker {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 18px;
+    height: 18px;
+    margin-left: -9px;
+    margin-top: -9px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.2);
+    border: 2px solid rgba(0,0,0,0.45);
+  }
+
+  #virtual-cursor,
+  #opponent-cursor {
+    position: absolute;
+    width: 22px;
+    height: 22px;
+    margin-left: -11px;
+    margin-top: -11px;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 8;
+  }
+
+  #virtual-cursor {
+    background: rgba(220, 53, 69, 0.9);
+    border: 2px solid white;
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.25);
+  }
+
+  #opponent-cursor {
+    display: none;
+    background: var(--opponent-cursor-color);
+    border: 2px solid white;
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.35);
+    opacity: 0.8;
+  }
+
+  #opponent-cursor::after {
+    content: "other";
+    position: absolute;
+    top: 26px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #111;
+    background: rgba(255,255,255,0.9);
+    padding: 1px 5px;
+    border-radius: 5px;
+    white-space: nowrap;
+  }
+
+  #zone-instructions {
+    position: absolute;
+    top: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 1.2rem;
+    font-weight: 600;
+    background: rgba(255,255,255,0.9);
+    padding: 0.5rem 1rem;
+    border-radius: 10px;
+    color: #222;
+  }
+
+  #pointerlock-warning {
+    position: absolute;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 1rem;
+    background: rgba(255,255,255,0.92);
+    padding: 0.5rem 1rem;
+    border-radius: 10px;
+    color: #444;
+    display: none;
+  }
+
+  #reward-effects {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 20;
+    overflow: hidden;
+  }
+
+  .reward-text,
+  .no-reward-text {
+    position: absolute;
+    font-size: 7.2rem;
+    font-weight: 800;
+    text-shadow: none;
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.8);
+    will-change: transform, opacity;
+    white-space: nowrap;
+  }
+
+  .reward-text {
+    color: #f4b400;
+  }
+
+  .no-reward-text {
+    color: rgba(120, 120, 120, 0.9);
+  }
+
+  .reward-particle {
+    position: absolute;
+    border-radius: 50%;
+    opacity: 0;
+    will-change: transform, opacity;
+  }
+</style>
+
+<div id="intro-overlay" style="position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+            background-color:rgba(255,255,255,0.95); cursor:pointer; z-index:10;">
+  <div style="max-width:700px; text-align:center;">
+    <p>
+      In this game, you will make choices by moving the cursor to the
+      <strong>left</strong> or <strong>right</strong> side of the screen.
+    </p>
+    <p>
+      You will be playing against another person. You will see their cursor as a black dot.
+    </p>
+    <p>
+      When it is time to choose, move your cursor into the highlighted left or right target area.
+      Your cursor will start from the center on each round.
+    </p>
+    <p style="margin-top:1.5rem; font-weight:bold;">
+      Click anywhere to begin
+    </p>
+  </div>
+</div>
+
+<div id="cursor-task">
+  <div id="left-zone" class="choice-zone">LEFT</div>
+  <div id="right-zone" class="choice-zone">RIGHT</div>
+  <div id="zone-instructions">Move the cursor into LEFT or RIGHT to choose</div>
+  <div id="pointerlock-warning">Click the screen if cursor tracking pauses</div>
+  <div id="center-marker"></div>
+  <div id="virtual-cursor"></div>
+  <div id="opponent-cursor"></div>
+</div>
+
+<div id="reward-effects"></div>
+
+<div id="game-wrapper" style="
+       position:relative;
+       height:100vh;
+       display:flex;
+       align-items:flex-start;
+       justify-content:center;
+       padding-top:10vh;
+     ">
+
+  <div id="wait-overlay" style="
+          position:absolute;
+          inset:0;
+          background:rgba(200,200,200,0.6);
+          backdrop-filter: blur(2px);
+          z-index:5;
+          display:none;
+      ">
+  </div>
+
+  <div id="game-area" style="text-align:center; display:none; transform:scale(1.6);">
+
+    <div id="total-points" style="font-size:1.8rem; margin-top:1rem; line-height:1.4;">
+      Total points: <span id="total-points-value">0</span>
+    </div>
+
+    <div id="status-text" style="margin-bottom:3rem; font-size:2rem; font-weight:bold;">
+      Wait...
+    </div>
+
+    <div style="margin-bottom:3rem; font-size:1rem; transform: translateX(-3%);">
+      <span>Round <span id="trial-number">1</span></span>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  const introOverlay = document.getElementById("intro-overlay");
+  const gameArea = document.getElementById("game-area");
+  const statusText = document.getElementById("status-text");
+  const trialNumberSpan = document.getElementById("trial-number");
+
+  const cursorTask = document.getElementById("cursor-task");
+  const virtualCursor = document.getElementById("virtual-cursor");
+  const opponentCursor = document.getElementById("opponent-cursor");
+  const pointerlockWarning = document.getElementById("pointerlock-warning");
+  const rewardEffects = document.getElementById("reward-effects");
+
+  const totalValue = document.getElementById("total-points-value");
+
+  async function sendPupilAnnotation(label, fields = {}) {
+    try {
+      await fetch("http://127.0.0.1:8765/annotation", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          label: label,
+          browser_ts: performance.now(),
+          ...fields,
+        }),
+      });
+    } catch (err) {
+      console.log("Pupil bridge unavailable", err);
+    }
+  }
+
+  let waitingForChoice = false;
+  let finished = false;
+  let choiceStartMs = null;
+  let lastSubmittedChoice = null;
+  let lastChoiceCursorX = null;
+  let lastChoiceCursorY = null;
+
+  let lastCursorSendMs = 0;
+  const CURSOR_SEND_INTERVAL_MS = 33; // about 30 Hz
+
+  let vcx = window.innerWidth / 2;
+  let vcy = window.innerHeight / 2;
+  const CURSOR_RADIUS = 11;
+
+  function renderVirtualCursor() {
+    virtualCursor.style.left = `${vcx}px`;
+    virtualCursor.style.top = `${vcy}px`;
+  }
+
+  function renderOpponentCursorNorm(x, y) {
+    opponentCursor.style.display = "block";
+    opponentCursor.style.left = `${x * window.innerWidth}px`;
+    opponentCursor.style.top = `${y * window.innerHeight}px`;
+  }
+
+  function resetVirtualCursorToCenter() {
+    vcx = window.innerWidth / 2;
+    vcy = window.innerHeight / 2;
+    renderVirtualCursor();
+    sendCursorPosition(true);
+  }
+
+  function clamp(val, min, max) {
+    return Math.max(min, Math.min(max, val));
+  }
+
+  function showCursorTask(show) {
+    cursorTask.style.display = "block";
+
+    if (show) {
+      cursorTask.classList.add("choice-enabled");
+    } else {
+      cursorTask.classList.remove("choice-enabled");
+    }
+  }
+
+  function requestPointerLock() {
+    if (document.body.requestPointerLock) {
+      document.body.requestPointerLock();
+    }
+  }
+
+  function sendCursorPosition(force = false) {
+    const now = performance.now();
+
+    if (!force && now - lastCursorSendMs < CURSOR_SEND_INTERVAL_MS) {
+      return;
+    }
+
+    lastCursorSendMs = now;
+
+    liveSend({
+      type: "cursor",
+      x: vcx / window.innerWidth,
+      y: vcy / window.innerHeight,
+    });
+  }
+
+  document.addEventListener("pointerlockchange", function () {
+    const locked = (document.pointerLockElement === document.body);
+    pointerlockWarning.style.display = locked ? "none" : "block";
+  });
+
+  document.addEventListener("mousemove", function (e) {
+    if (finished) return;
+    if (document.pointerLockElement !== document.body) return;
+
+    vcx = clamp(vcx + e.movementX, CURSOR_RADIUS, window.innerWidth - CURSOR_RADIUS);
+    vcy = clamp(vcy + e.movementY, CURSOR_RADIUS, window.innerHeight - CURSOR_RADIUS);
+    renderVirtualCursor();
+    sendCursorPosition(false);
+
+    if (waitingForChoice) {
+      checkZoneChoice();
+    }
+  });
+
+  window.addEventListener("resize", function () {
+    vcx = clamp(vcx, CURSOR_RADIUS, window.innerWidth - CURSOR_RADIUS);
+    vcy = clamp(vcy, CURSOR_RADIUS, window.innerHeight - CURSOR_RADIUS);
+    renderVirtualCursor();
+    sendCursorPosition(true);
+  });
+
+  function checkZoneChoice() {
+    if (!waitingForChoice || finished) return;
+
+    const leftThreshold = window.innerWidth * 0.20;
+    const rightThreshold = window.innerWidth * 0.80;
+
+    const leftZone = document.getElementById("left-zone");
+    const rightZone = document.getElementById("right-zone");
+
+    leftZone.classList.remove("active");
+    rightZone.classList.remove("active");
+
+    if (vcx <= leftThreshold) {
+      leftZone.classList.add("active");
+      submitChoice("L");
+    } else if (vcx >= rightThreshold) {
+      rightZone.classList.add("active");
+      submitChoice("R");
+    }
+  }
+
+  function submitChoice(choice) {
+    if (!waitingForChoice || finished) return;
+
+    waitingForChoice = false;
+    fadeGameArea();
+    lastSubmittedChoice = choice;
+    lastChoiceCursorX = vcx;
+    lastChoiceCursorY = vcy;
+
+    const rt_ms = (choiceStartMs === null) ? null : Math.round(performance.now() - choiceStartMs);
+
+    sendPupilAnnotation("choice_submitted", {
+      choice: choice,
+      rt_ms: rt_ms,
+      cursor_x: lastChoiceCursorX,
+      cursor_y: lastChoiceCursorY,
+    });
+
+    liveSend({ type: "choice", choice: choice, rt_ms: rt_ms });
+  }
+
+  function getChoiceColor(choice) {
+    if (choice === "L") return "var(--left-color)";
+    if (choice === "R") return "var(--right-color)";
+    return "var(--reward-color)";
+  }
+
+  function animateRewardEffects(reward, choice) {
+    const color = getChoiceColor(choice);
+
+    let cx = lastChoiceCursorX;
+    let cy = lastChoiceCursorY;
+
+    if (cx == null || cy == null) {
+      cx = window.innerWidth / 2;
+      cy = window.innerHeight / 2;
+    }
+
+    cx += (Math.random() - 0.5) * 20;
+    cy += (Math.random() - 0.5) * 20;
+
+    if (reward && reward > 0) {
+      spawnFloatingRewardText(cx, cy - 20, reward, color);
+      spawnParticleBurst(cx, cy, color, true);
+    } else {
+      spawnNoRewardText(cx, cy + 10);
+      spawnParticleBurst(cx, cy, "var(--noreward-color)", false);
+    }
+  }
+
+  function spawnFloatingRewardText(x, y, reward, color) {
+    const el = document.createElement("div");
+    el.className = "reward-text";
+    el.textContent = `+${reward}`;
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    el.style.color = color;
+
+    const driftX = (Math.random() - 0.5) * 180;
+    const driftY = -(270 + Math.random() * 150);
+    const scaleEnd = 1.0 + Math.random() * 0.25;
+    const duration = 1100 + Math.random() * 350;
+
+    rewardEffects.appendChild(el);
+
+    el.animate([
+      { opacity: 0, transform: "translate(-50%, -50%) scale(0.8)" },
+      { opacity: 1, transform: "translate(-50%, -50%) scale(1.15)", offset: 0.2 },
+      {
+        opacity: 1,
+        transform: `translate(calc(-50% + ${driftX * 0.35}px), calc(-50% + ${driftY * 0.35}px)) scale(${scaleEnd})`,
+        offset: 0.65
+      },
+      {
+        opacity: 0,
+        transform: `translate(calc(-50% + ${driftX}px), calc(-50% + ${driftY}px)) scale(${scaleEnd})`
+      }
+    ], {
+      duration: duration,
+      easing: "cubic-bezier(0.22, 0.8, 0.2, 1)",
+      fill: "forwards"
+    });
+
+    setTimeout(() => el.remove(), duration + 50);
+  }
+
+  function spawnParticleBurst(x, y, color, rewarded = true) {
+    const particleCount = 16;
+    const duration = 900;
+
+    for (let i = 0; i < particleCount; i++) {
+      const p = document.createElement("div");
+      p.className = "reward-particle";
+
+      const size = 20;
+      const angle = (i / particleCount) * Math.PI * 2;
+      const distance = rewarded ? 180 : 120;
+
+      const dx = Math.cos(angle) * distance;
+      const dy = Math.sin(angle) * distance * (rewarded ? 1 : -0.6);
+
+      p.style.left = `${x}px`;
+      p.style.top = `${y}px`;
+      p.style.width = `${size}px`;
+      p.style.height = `${size}px`;
+      p.style.background = rewarded ? color : "var(--noreward-color)";
+      p.style.opacity = 0;
+
+      rewardEffects.appendChild(p);
+
+      p.animate([
+        { opacity: 0, transform: "translate(-50%, -50%) scale(0.5)" },
+        { opacity: 0.55, transform: "translate(-50%, -50%) scale(1)", offset: 0.2 },
+        { opacity: 0, transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(0.6)` }
+      ], {
+        duration: duration,
+        easing: "cubic-bezier(0.2, 0.7, 0.3, 1)",
+        fill: "forwards"
+      });
+
+      setTimeout(() => p.remove(), duration + 50);
+    }
+  }
+
+  function spawnNoRewardText(x, y) {
+    const el = document.createElement("div");
+    el.className = "no-reward-text";
+    el.textContent = "0";
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    el.style.color = "var(--noreward-color)";
+
+    const duration = 1100;
+
+    rewardEffects.appendChild(el);
+
+    el.animate([
+      { opacity: 0, transform: "translate(-50%, -50%) scale(0.8)" },
+      { opacity: 0.9, transform: "translate(-50%, -50%) scale(1.15)", offset: 0.2 },
+      { opacity: 0.9, transform: "translate(-50%, -30%) scale(1.0)", offset: 0.65 },
+      { opacity: 0, transform: "translate(-50%, -10%) scale(0.75)" }
+    ], {
+      duration: duration,
+      easing: "cubic-bezier(0.22, 0.8, 0.2, 1)",
+      fill: "forwards"
+    });
+
+    setTimeout(() => el.remove(), duration + 50);
+  }
+
+  function fadeGameArea() {
+    gameArea.classList.add("faded");
+  }
+
+  function unfadeGameArea() {
+    gameArea.classList.remove("faded");
+  }
+
+  function updatePointsUI(total_points) {
+    totalValue.textContent = total_points;
+  }
+
+  function startChoicePhase() {
+    if (finished) return;
+
+    statusText.textContent = "Wait...";
+    waitingForChoice = false;
+    fadeGameArea();
+    showCursorTask(false);
+
+    setTimeout(function () {
+      if (finished) return;
+
+      unfadeGameArea();
+      statusText.textContent = "Select your choice now";
+
+      resetVirtualCursorToCenter();
+      showCursorTask(true);
+      requestPointerLock();
+
+      const leftZone = document.getElementById("left-zone");
+      const rightZone = document.getElementById("right-zone");
+      leftZone.classList.remove("active");
+      rightZone.classList.remove("active");
+
+      sendPupilAnnotation("trial_start", {
+        displayed_trial: trialNumberSpan.textContent,
+        phase: "multi",
+      });
+
+      choiceStartMs = performance.now();
+      waitingForChoice = true;
+    }, 2000);
+  }
+
+  introOverlay.addEventListener("click", function () {
+    introOverlay.style.display = "none";
+    gameArea.style.display = "block";
+    resetVirtualCursorToCenter();
+    requestPointerLock();
+    liveSend({ type: "start" });
+    statusText.textContent = "Wait...";
+  });
+
+  document.addEventListener("click", function () {
+    if (!finished && document.pointerLockElement !== document.body) {
+      requestPointerLock();
+    }
+  });
+
+  document.addEventListener("keydown", function (e) {
+    if (finished || !waitingForChoice) return;
+    if (e.repeat) return;
+
+    const key = (e.key || "").toLowerCase();
+
+    if (key === "f") {
+      e.preventDefault();
+      submitChoice("L");
+    } else if (key === "j") {
+      e.preventDefault();
+      submitChoice("R");
+    }
+  });
+
+  function liveRecv(data) {
+    if (data.type === "opponent_cursor") {
+      renderOpponentCursorNorm(data.x, data.y);
+
+    } else if (data.type === "ready") {
+      trialNumberSpan.textContent = data.trial;
+      updatePointsUI(data.total_points);
+
+      statusText.textContent = "Two-player block: wait...";
+      startChoicePhase();
+
+    } else if (data.type === "wait_opponent") {
+      trialNumberSpan.textContent = data.trial;
+      updatePointsUI(data.total_points);
+
+      waitingForChoice = false;
+      fadeGameArea();
+      statusText.textContent = "Waiting for the other player...";
+
+    } else if (data.type === "feedback") {
+      trialNumberSpan.textContent = data.trial;
+      updatePointsUI(data.total_points);
+
+      waitingForChoice = false;
+
+      setTimeout(function () {
+        statusText.textContent = "You won " + data.reward + " points";
+        animateRewardEffects(data.reward, lastSubmittedChoice);
+
+        sendPupilAnnotation("feedback_shown", {
+          overall_trial: data.trial,
+          block: "multi",
+          block_trial: data.trial,
+          reward: data.reward,
+          total_points: data.total_points,
+          choice: lastSubmittedChoice,
+          other_choice: data.other_choice,
+        });
+
+        if (data.is_last) {
+          finished = true;
+
+          if (document.exitPointerLock) {
+            document.exitPointerLock();
+          }
+
+          setTimeout(function () {
+            statusText.textContent = "Game finished. Moving to summary...";
+            const form = document.getElementById("form");
+            if (form) form.submit();
+          }, 1500);
+
+          return;
+        }
+
+        setTimeout(function () {
+          unfadeGameArea();
+          startChoicePhase();
+        }, 1500);
+
+      }, 0);
+    }
+  }
+</script>
+
+{{ endblock }}

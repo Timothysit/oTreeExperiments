@@ -28,6 +28,12 @@ SESSION_CONFIGS = [
         app_sequence=["pupil_sync_test"],
         num_demo_participants=1,
     ),
+    dict(
+        name="matching_retreat_1",
+        display_name="MP Real time",
+        app_sequence=["matching_retreat_1"],
+        num_demo_participants=2,
+    ),
 ]
 
 # if you set a property in SESSION_CONFIG_DEFAULTS, it will be inherited by all configs
