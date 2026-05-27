@@ -205,8 +205,8 @@
       You will be playing against another person. You will see their cursor as a black dot.
     </p>
     <p>
-      When it is time to choose, move your cursor into the highlighted left or right target area.
-      Your cursor will start from the center on each round.
+      On each round, a hidden timer between 2 and 5 seconds will start.
+      Keep your cursor in LEFT or RIGHT when the timer ends. Your position at the deadline is your choice.
     </p>
     <p style="margin-top:1.5rem; font-weight:bold;">
       Click anywhere to begin
@@ -217,7 +217,7 @@
 <div id="cursor-task">
   <div id="left-zone" class="choice-zone">LEFT</div>
   <div id="right-zone" class="choice-zone">RIGHT</div>
-  <div id="zone-instructions">Move the cursor into LEFT or RIGHT to choose</div>
+  <div id="zone-instructions">Keep your cursor in LEFT or RIGHT before the timer ends</div>
   <div id="pointerlock-warning">Click the screen if cursor tracking pauses</div>
   <div id="center-marker"></div>
   <div id="virtual-cursor"></div>
@@ -297,6 +297,8 @@
   let waitingForChoice = false;
   let finished = false;
   let choiceStartMs = null;
+  let currentTimerMs = null;
+  let deadlineTimeoutId = null;
   let lastSubmittedChoice = null;
   let lastChoiceCursorX = null;
   let lastChoiceCursorY = null;
@@ -388,41 +390,43 @@
     sendCursorPosition(true);
   });
 
-  function checkZoneChoice() {
-    if (!waitingForChoice || finished) return;
-
+  function getCurrentZoneChoice() {
     const leftThreshold = window.innerWidth * 0.20;
     const rightThreshold = window.innerWidth * 0.80;
 
+    if (vcx <= leftThreshold) return "L";
+    if (vcx >= rightThreshold) return "R";
+    return "NONE";
+  }
+
+  function checkZoneChoice() {
+    if (!waitingForChoice || finished) return;
+
+    const choice = getCurrentZoneChoice();
     const leftZone = document.getElementById("left-zone");
     const rightZone = document.getElementById("right-zone");
 
-    leftZone.classList.remove("active");
-    rightZone.classList.remove("active");
-
-    if (vcx <= leftThreshold) {
-      leftZone.classList.add("active");
-      submitChoice("L");
-    } else if (vcx >= rightThreshold) {
-      rightZone.classList.add("active");
-      submitChoice("R");
-    }
+    leftZone.classList.toggle("active", choice === "L");
+    rightZone.classList.toggle("active", choice === "R");
   }
 
-  function submitChoice(choice) {
+  function submitDeadlineChoice() {
     if (!waitingForChoice || finished) return;
 
     waitingForChoice = false;
     fadeGameArea();
+
+    const choice = getCurrentZoneChoice();
     lastSubmittedChoice = choice;
     lastChoiceCursorX = vcx;
     lastChoiceCursorY = vcy;
 
     const rt_ms = (choiceStartMs === null) ? null : Math.round(performance.now() - choiceStartMs);
 
-    sendPupilAnnotation("choice_submitted", {
+    sendPupilAnnotation("deadline_choice_submitted", {
       choice: choice,
       rt_ms: rt_ms,
+      timer_ms: currentTimerMs,
       cursor_x: lastChoiceCursorX,
       cursor_y: lastChoiceCursorY,
     });
@@ -571,9 +575,15 @@
     totalValue.textContent = total_points;
   }
 
-  function startChoicePhase() {
+  function startChoicePhase(timerMs) {
     if (finished) return;
 
+    if (deadlineTimeoutId !== null) {
+      clearTimeout(deadlineTimeoutId);
+      deadlineTimeoutId = null;
+    }
+
+    currentTimerMs = timerMs;
     statusText.textContent = "Wait...";
     waitingForChoice = false;
     fadeGameArea();
@@ -583,7 +593,7 @@
       if (finished) return;
 
       unfadeGameArea();
-      statusText.textContent = "Select your choice now";
+      statusText.textContent = "Move now — your position at the deadline counts";
 
       resetVirtualCursorToCenter();
       showCursorTask(true);
@@ -597,10 +607,15 @@
       sendPupilAnnotation("trial_start", {
         displayed_trial: trialNumberSpan.textContent,
         phase: "multi",
+        timer_ms: currentTimerMs,
       });
 
       choiceStartMs = performance.now();
       waitingForChoice = true;
+
+      deadlineTimeoutId = setTimeout(function () {
+        submitDeadlineChoice();
+      }, currentTimerMs);
     }, 2000);
   }
 
@@ -625,12 +640,20 @@
 
     const key = (e.key || "").toLowerCase();
 
+    // Keyboard fallback now moves the virtual cursor into a zone,
+    // but does not submit immediately. The deadline still determines choice.
     if (key === "f") {
       e.preventDefault();
-      submitChoice("L");
+      vcx = CURSOR_RADIUS;
+      renderVirtualCursor();
+      sendCursorPosition(true);
+      checkZoneChoice();
     } else if (key === "j") {
       e.preventDefault();
-      submitChoice("R");
+      vcx = window.innerWidth - CURSOR_RADIUS;
+      renderVirtualCursor();
+      sendCursorPosition(true);
+      checkZoneChoice();
     }
   });
 
@@ -638,12 +661,19 @@
     if (data.type === "opponent_cursor") {
       renderOpponentCursorNorm(data.x, data.y);
 
+    } else if (data.type === "waiting_start") {
+      trialNumberSpan.textContent = data.trial;
+      updatePointsUI(data.total_points);
+      waitingForChoice = false;
+      fadeGameArea();
+      statusText.textContent = data.message || "Waiting for the other player to start...";
+
     } else if (data.type === "ready") {
       trialNumberSpan.textContent = data.trial;
       updatePointsUI(data.total_points);
 
       statusText.textContent = "Two-player block: wait...";
-      startChoicePhase();
+      startChoicePhase(data.timer_ms);
 
     } else if (data.type === "wait_opponent") {
       trialNumberSpan.textContent = data.trial;
@@ -660,6 +690,7 @@
       waitingForChoice = false;
 
       setTimeout(function () {
+        const choiceText = data.your_choice === "NONE" ? "outside both zones" : data.your_choice;
         statusText.textContent = "You won " + data.reward + " points";
         animateRewardEffects(data.reward, lastSubmittedChoice);
 
@@ -691,7 +722,7 @@
 
         setTimeout(function () {
           unfadeGameArea();
-          startChoicePhase();
+          startChoicePhase(data.next_timer_ms);
         }, 1500);
 
       }, 0);
