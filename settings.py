@@ -34,6 +34,12 @@ SESSION_CONFIGS = [
         app_sequence=["matching_retreat_1"],
         num_demo_participants=2,
     ),
+    dict(
+        name="matching_blocks",
+        display_name="Matching Blocks",
+        app_sequence=["matching_blocks"],
+        num_demo_participants=2,
+    )
 ]
 
 # if you set a property in SESSION_CONFIG_DEFAULTS, it will be inherited by all configs

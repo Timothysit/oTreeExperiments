@@ -1,0 +1,720 @@
+{{ block title }}
+Corridor game
+{{ endblock }}
+
+{{ block content }}
+
+<style>
+  body { font-family: sans-serif; }
+
+  #main-wrapper {
+    display: flex;
+    justify-content: center;
+    gap: 40px;
+    margin-top: 20px;
+  }
+
+  #game-area {
+    position: relative;
+    height: 620px;
+    background: #f4f4f4;
+    border: 3px solid #222;
+    border-radius: 16px;
+    overflow: hidden;
+  }
+
+  #corridor-midline {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    width: 100%;
+    border-top: 2px dashed #999;
+    z-index: 1;
+  }
+
+  #lane-grid {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+  }
+
+  .lane-separator {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    border-left: 2px dashed #bbb;
+  }
+
+  .cube {
+    position: absolute;
+    width: 42px;
+    height: 42px;
+    border-radius: 8px;
+    transform: translate(-50%, -50%);
+  }
+
+  .cube.control-locked {
+    filter: grayscale(80%);
+    opacity: 0.45;
+  }
+
+  #self-cube {
+    background: #1f77b4;
+    z-index: 3;
+  }
+
+  #other-cube {
+    background: #d62728;
+    z-index: 2;
+  }
+
+  #info-panel {
+    width: 280px;
+    font-size: 18px;
+  }
+
+  #role-label {
+    font-size: 24px;
+    font-weight: bold;
+    margin-bottom: 12px;
+  }
+
+  #budget-bar-outer {
+    width: 100%;
+    height: 24px;
+    border: 2px solid #222;
+    border-radius: 8px;
+    overflow: hidden;
+    margin-top: 8px;
+  }
+
+  #budget-bar-inner {
+    width: 100%;
+    height: 100%;
+    background: #66bb6a;
+  }
+
+  #score-panel {
+    margin-top: 24px;
+  }
+
+  #score-heading {
+    font-weight: bold;
+    margin-bottom: 10px;
+  }
+
+  #score-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    font-size: 16px;
+    font-weight: bold;
+  }
+
+  .score-label {
+    color: #555;
+    font-size: 13px;
+    font-weight: normal;
+  }
+
+  .score-value {
+    font-size: 24px;
+    line-height: 1.1;
+  }
+
+  #opponent-score-box {
+    text-align: right;
+  }
+
+  #tug-bar {
+    position: relative;
+    display: flex;
+    width: 100%;
+    height: 28px;
+    margin-top: 10px;
+    overflow: hidden;
+    border: 2px solid #222;
+    border-radius: 8px;
+    background: #eee;
+  }
+
+  #self-score-bar,
+  #opponent-score-bar {
+    height: 100%;
+    transition: width 250ms ease;
+  }
+
+  #self-score-bar {
+    width: 50%;
+    background: #1f77b4;
+  }
+
+  #opponent-score-bar {
+    width: 50%;
+    background: #d62728;
+  }
+
+  #tug-midline {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    height: 100%;
+    border-left: 2px solid rgba(0, 0, 0, 0.45);
+  }
+
+  #feedback {
+    margin-top: 24px;
+    font-size: 26px;
+    font-weight: bold;
+    min-height: 40px;
+  }
+
+  .small-text {
+    font-size: 15px;
+    color: #555;
+    margin-top: 8px;
+  }
+
+  #setup-overlay,
+  #instruction-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(255, 255, 255, 0.96);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  #setup-overlay {
+    z-index: 1100;
+  }
+
+  #instruction-overlay {
+    z-index: 1000;
+    display: none;
+  }
+
+  #setup-card,
+  #instruction-card {
+    width: 560px;
+    max-width: 90vw;
+    border: 3px solid #222;
+    border-radius: 18px;
+    background: white;
+    padding: 28px;
+    font-size: 20px;
+    line-height: 1.5;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  }
+
+  #setup-button,
+  #ready-button {
+    margin-top: 20px;
+    font-size: 22px;
+    padding: 10px 20px;
+  }
+
+  input, select {
+    font-size: 18px;
+    padding: 4px 8px;
+  }
+</style>
+
+<div id="setup-overlay">
+  <div id="setup-card">
+    {{ if player.id_in_group == 1 }}
+      <h2>Game setup</h2>
+
+      <p>
+        Number of trials:
+        <input id="num-trials-input" type="number" min="1" max="500" value="{{ num_trials }}">
+      </p>
+
+      <p>
+        Control lock type:
+        <select id="lock-mode-input">
+          <option value="independent">Independent locks</option>
+          <option value="shared">Shared locks</option>
+        </select>
+      </p>
+
+      <button id="setup-button" type="button" class="btn btn-primary">
+        Continue to instructions
+      </button>
+    {{ else }}
+      <h2>Waiting for setup</h2>
+      <p>Waiting for player 1 to choose the game settings.</p>
+    {{ endif }}
+  </div>
+</div>
+
+<div id="instruction-overlay">
+  <div id="instruction-card">
+    <h2>Instructions</h2>
+
+    <p>
+      You will move through a narrow corridor while another player moves toward you.
+    </p>
+
+    <p>
+      Use the <strong>left</strong> and <strong>right</strong> arrow keys,
+      or <strong>A</strong> and <strong>D</strong>, to switch lanes.
+    </p>
+
+    <p>
+      You can only switch lanes once every
+      <strong>{{ lane_switch_cooldown_ms }} ms</strong>.
+    </p>
+
+    <p>
+      At a random time, your control may lock. When this happens, your cube will grey out.
+      In shared-lock mode, both players lock at the same time.
+      In independent-lock mode, you only see your own lock.
+    </p>
+
+    <p>
+      If you are the <strong>Matcher</strong>, you want to collide with the other player.
+      If you are the <strong>Avoider</strong>, you want to pass without colliding.
+    </p>
+
+    <button id="ready-button" type="button" class="btn btn-primary">
+      I am ready
+    </button>
+  </div>
+</div>
+
+<div id="main-wrapper">
+  <div id="game-area">
+    <div id="lane-grid"></div>
+    <div id="corridor-midline"></div>
+    <div id="self-cube" class="cube"></div>
+    <div id="other-cube" class="cube"></div>
+  </div>
+
+  <div id="info-panel">
+    <div id="role-label"></div>
+    <div id="instruction-text"></div>
+
+    <hr>
+
+    <div>
+      Control budget
+      <div id="budget-bar-outer">
+        <div id="budget-bar-inner"></div>
+      </div>
+      <div class="small-text" id="budget-text">Control available</div>
+    </div>
+
+    <div id="score-panel">
+      <div id="score-heading">Total points</div>
+      <div id="score-row">
+        <div>
+          <div class="score-label">You</div>
+          <div class="score-value" id="self-total-score">0</div>
+        </div>
+        <div id="opponent-score-box">
+          <div class="score-label">Opponent</div>
+          <div class="score-value" id="opponent-total-score">0</div>
+        </div>
+      </div>
+      <div id="tug-bar" aria-hidden="true">
+        <div id="self-score-bar"></div>
+        <div id="opponent-score-bar"></div>
+        <div id="tug-midline"></div>
+      </div>
+    </div>
+
+    <div id="feedback"></div>
+  </div>
+</div>
+
+<script>
+  const ROLE_NAME = "{{ role_name }}";
+  const PLAYER_ID = {{ player.id_in_group }};
+  let NUM_TRIALS = {{ num_trials }};
+  const TRIAL_DURATION_MS = {{ trial_duration_ms }};
+  const POST_TRIAL_DELAY_MS_MIN = {{ post_trial_delay_ms_min }};
+  const POST_TRIAL_DELAY_MS_MAX = {{ post_trial_delay_ms_max }};
+  const CORRIDOR_WIDTH = {{ corridor_width }};
+  const LANE_SWITCH_COOLDOWN_MS = {{ lane_switch_cooldown_ms }};
+
+  let SHARED_CONTROL_LOCK = false;
+
+  const LANE_WIDTH_PX = 56;
+  const GAME_HEIGHT_PX = 620;
+  const GAME_WIDTH_PX = CORRIDOR_WIDTH * LANE_WIDTH_PX;
+
+  const CUBE_SIZE_PX = 42;
+  const SELF_START_Y = (GAME_HEIGHT_PX - CUBE_SIZE_PX / 2) / GAME_HEIGHT_PX;
+  const OTHER_START_Y = (CUBE_SIZE_PX / 2) / GAME_HEIGHT_PX;
+
+  const gameArea = document.getElementById("game-area");
+  const selfCube = document.getElementById("self-cube");
+  const otherCube = document.getElementById("other-cube");
+  const roleLabel = document.getElementById("role-label");
+  const instructionText = document.getElementById("instruction-text");
+  const feedback = document.getElementById("feedback");
+  const laneGrid = document.getElementById("lane-grid");
+
+  const setupOverlay = document.getElementById("setup-overlay");
+  const setupButton = document.getElementById("setup-button");
+  const lockModeInput = document.getElementById("lock-mode-input");
+  const numTrialsInput = document.getElementById("num-trials-input");
+
+  const instructionOverlay = document.getElementById("instruction-overlay");
+  const readyButton = document.getElementById("ready-button");
+  const lockModeText = document.getElementById("lock-mode-text");
+  const selfTotalScore = document.getElementById("self-total-score");
+  const opponentTotalScore = document.getElementById("opponent-total-score");
+  const selfScoreBar = document.getElementById("self-score-bar");
+  const opponentScoreBar = document.getElementById("opponent-score-bar");
+
+  gameArea.style.width = GAME_WIDTH_PX + "px";
+
+  function sendLiveMessage(data) {
+    if (typeof liveSend !== "undefined") {
+      liveSend(data);
+    } else if (typeof live_send !== "undefined") {
+      live_send(data);
+    } else {
+      console.error("live send function not found");
+    }
+  }
+
+  let selfLane = 0;
+  let otherLane = 0;
+
+  let currentTrial = 1;
+  let trialRunning = false;
+  let startTime = null;
+  let submittedFinalChoice = false;
+  let resultReceived = false;
+  let animationFrameId = null;
+  let lastLaneSwitchTime = -Infinity;
+  let controlCutoffMs = null;
+  let controlLocked = false;
+
+  let paused = false;
+  let pauseStartTimestamp = null;
+  let accumulatedPauseMs = 0;
+
+  if (ROLE_NAME === "matcher") {
+    roleLabel.textContent = "Role: Matcher";
+    instructionText.textContent = "You want to collide with the other player.";
+  } else {
+    roleLabel.textContent = "Role: Avoider";
+    instructionText.textContent = "You want to pass the other player without colliding.";
+  }
+
+  function updateLockModeText() {
+    if (lockModeText === null) return;
+
+    lockModeText.textContent = SHARED_CONTROL_LOCK
+      ? "Lock mode: shared"
+      : "Lock mode: independent";
+  }
+
+  function updateScoreDisplay(myTotal, opponentTotal) {
+    const safeMyTotal = Math.max(0, Number(myTotal) || 0);
+    const safeOpponentTotal = Math.max(0, Number(opponentTotal) || 0);
+    const combinedTotal = safeMyTotal + safeOpponentTotal;
+    const myShare = combinedTotal > 0 ? safeMyTotal / combinedTotal : 0.5;
+    const myWidth = myShare * 100;
+
+    selfTotalScore.textContent = safeMyTotal;
+    opponentTotalScore.textContent = safeOpponentTotal;
+    selfScoreBar.style.width = myWidth + "%";
+    opponentScoreBar.style.width = (100 - myWidth) + "%";
+  }
+
+  function lockControl() {
+    if (controlLocked) return;
+
+    controlLocked = true;
+    selfCube.classList.add("control-locked");
+
+    if (SHARED_CONTROL_LOCK) {
+      otherCube.classList.add("control-locked");
+    }
+
+    feedback.textContent =
+      "Your control is locked. Trial " + currentTrial + " / " + NUM_TRIALS;
+  }
+
+  function randomPostTrialDelay() {
+    return POST_TRIAL_DELAY_MS_MIN + Math.random() *
+      (POST_TRIAL_DELAY_MS_MAX - POST_TRIAL_DELAY_MS_MIN);
+  }
+
+  function laneToX(lane) {
+    return (lane + 0.5) * LANE_WIDTH_PX;
+  }
+
+  function setCubePosition(cube, lane, yNorm) {
+    cube.style.left = laneToX(lane) + "px";
+    cube.style.top = (yNorm * GAME_HEIGHT_PX) + "px";
+  }
+
+  function drawLaneGrid() {
+    laneGrid.innerHTML = "";
+
+    for (let boundary = 1; boundary < CORRIDOR_WIDTH; boundary++) {
+      const separator = document.createElement("div");
+      separator.className = "lane-separator";
+      separator.style.left = (boundary * LANE_WIDTH_PX) + "px";
+      laneGrid.appendChild(separator);
+    }
+  }
+
+  function setInitialWaitingPositions() {
+    selfLane = Math.floor(CORRIDOR_WIDTH / 2);
+    otherLane = Math.floor(CORRIDOR_WIDTH / 2);
+
+    setCubePosition(selfCube, selfLane, SELF_START_Y);
+    setCubePosition(otherCube, otherLane, OTHER_START_Y);
+  }
+
+  function canSwitchLane() {
+    return performance.now() - lastLaneSwitchTime >= LANE_SWITCH_COOLDOWN_MS;
+  }
+
+  function switchLane(delta) {
+    if (paused) return;
+    if (!trialRunning || submittedFinalChoice || controlLocked) return;
+    if (!canSwitchLane()) return;
+
+    const newLane = Math.max(0, Math.min(CORRIDOR_WIDTH - 1, selfLane + delta));
+    if (newLane === selfLane) return;
+
+    selfLane = newLane;
+    lastLaneSwitchTime = performance.now();
+
+    sendLiveMessage({
+      type: "position",
+      lane: selfLane,
+    });
+  }
+
+  document.addEventListener("keydown", function(event) {
+    if (event.repeat) return;
+
+    if (event.code === "Space") {
+      event.preventDefault();
+
+      if (trialRunning && !resultReceived) {
+        sendLiveMessage({ type: "toggle_pause" });
+      }
+
+      return;
+    }
+
+    if (event.key === "ArrowLeft" || event.key === "a" || event.key === "A") {
+      switchLane(-1);
+    }
+
+    if (event.key === "ArrowRight" || event.key === "d" || event.key === "D") {
+      switchLane(1);
+    }
+  });
+
+  function resetLocalTrialState(trialIndex, p1StartLane, p2StartLane, cutoffMs) {
+    if (animationFrameId !== null) {
+      cancelAnimationFrame(animationFrameId);
+      animationFrameId = null;
+    }
+
+    controlCutoffMs = cutoffMs;
+    controlLocked = false;
+
+    selfCube.classList.remove("control-locked");
+    otherCube.classList.remove("control-locked");
+
+    currentTrial = trialIndex;
+
+    if (PLAYER_ID === 1) {
+      selfLane = p1StartLane;
+      otherLane = p2StartLane;
+    } else {
+      selfLane = p2StartLane;
+      otherLane = p1StartLane;
+    }
+
+    startTime = null;
+    submittedFinalChoice = false;
+    resultReceived = false;
+    trialRunning = true;
+    lastLaneSwitchTime = -Infinity;
+    paused = false;
+    pauseStartTimestamp = null;
+    accumulatedPauseMs = 0;
+
+    feedback.textContent = "Trial " + currentTrial + " / " + NUM_TRIALS;
+
+    setCubePosition(selfCube, selfLane, SELF_START_Y);
+    setCubePosition(otherCube, otherLane, OTHER_START_Y);
+
+    sendLiveMessage({
+      type: "position",
+      lane: selfLane,
+    });
+
+    animationFrameId = requestAnimationFrame(animate);
+  }
+
+  function liveRecv(data) {
+    if (data.type === "game_settings_set") {
+      NUM_TRIALS = data.num_trials;
+      SHARED_CONTROL_LOCK = data.shared_control_lock;
+      updateLockModeText();
+
+      setupOverlay.style.display = "none";
+      instructionOverlay.style.display = "flex";
+    }
+
+    if (data.type === "waiting_for_other_player") {
+      feedback.textContent =
+        "Waiting for the other player... " +
+        "p1_ready=" + data.p1_ready +
+        ", p2_ready=" + data.p2_ready +
+        ", my_id=" + data.my_id;
+    }
+
+    if (data.type === "pause_state") {
+      paused = data.paused;
+
+      if (paused) {
+        pauseStartTimestamp = performance.now();
+        feedback.textContent = "Paused";
+      } else {
+        if (pauseStartTimestamp !== null) {
+          accumulatedPauseMs += performance.now() - pauseStartTimestamp;
+          pauseStartTimestamp = null;
+        }
+
+        feedback.textContent = "Trial " + currentTrial + " / " + NUM_TRIALS;
+        animationFrameId = requestAnimationFrame(animate);
+      }
+    }
+
+    if (data.type === "opponent_position") {
+      otherLane = data.lane;
+    }
+
+    if (data.type === "start_trial") {
+      SHARED_CONTROL_LOCK = data.shared_control_lock;
+      updateLockModeText();
+
+      instructionOverlay.style.display = "none";
+
+      resetLocalTrialState(
+        data.trial_index,
+        data.p1_start_lane,
+        data.p2_start_lane,
+        data.control_cutoff_ms
+      );
+    }
+
+    if (data.type === "result") {
+      resultReceived = true;
+      trialRunning = false;
+
+      const myReward = data.rewards[PLAYER_ID];
+      const myTotal = data.total_rewards[PLAYER_ID];
+      const opponentId = PLAYER_ID === 1 ? 2 : 1;
+      const opponentTotal = data.total_rewards[opponentId];
+
+      updateScoreDisplay(myTotal, opponentTotal);
+
+      feedback.textContent =
+        (data.collision ? "Collision!" : "Passed!") +
+        " You won " + myReward +
+        " points. Total: " + myTotal;
+
+      if (data.is_last_trial) {
+        setTimeout(function() {
+          document.querySelector("form").submit();
+        }, randomPostTrialDelay());
+      } else {
+        setTimeout(function() {
+          if (PLAYER_ID === 1) {
+            sendLiveMessage({ type: "next_trial" });
+          }
+        }, randomPostTrialDelay());
+      }
+    }
+
+    if (data.type === "game_over") {
+      document.querySelector("form").submit();
+    }
+  }
+
+  function submitFinalChoice() {
+    if (submittedFinalChoice) return;
+
+    submittedFinalChoice = true;
+
+    sendLiveMessage({
+      type: "final_choice",
+      lane: selfLane,
+    });
+  }
+
+  function animate(timestamp) {
+    if (paused) return;
+    if (!trialRunning) return;
+
+    if (startTime === null) {
+      startTime = timestamp;
+    }
+
+    const elapsed = timestamp - startTime - accumulatedPauseMs;
+
+    if (!controlLocked && controlCutoffMs !== null && elapsed >= controlCutoffMs) {
+      lockControl();
+    }
+
+    const progress = Math.min(elapsed / TRIAL_DURATION_MS, 1);
+    const meetProgress = Math.min(progress * 2, 1);
+
+    const selfY = SELF_START_Y + (0.5 - SELF_START_Y) * meetProgress;
+    const otherY = OTHER_START_Y + (0.5 - OTHER_START_Y) * meetProgress;
+
+    setCubePosition(selfCube, selfLane, selfY);
+    setCubePosition(otherCube, otherLane, otherY);
+
+    if (progress >= 0.5 && !submittedFinalChoice) {
+      submitFinalChoice();
+    }
+
+    if (!resultReceived) {
+      animationFrameId = requestAnimationFrame(animate);
+    }
+  }
+
+  drawLaneGrid();
+  setInitialWaitingPositions();
+  updateLockModeText();
+  updateScoreDisplay(0, 0);
+
+  if (PLAYER_ID === 1 && setupButton !== null) {
+    setupButton.addEventListener("click", function() {
+      setupButton.disabled = true;
+      setupButton.textContent = "Sending settings...";
+
+      sendLiveMessage({
+        type: "set_game_settings",
+        num_trials: parseInt(numTrialsInput.value),
+        shared_control_lock: lockModeInput.value === "shared",
+      });
+    });
+  }
+
+  readyButton.addEventListener("click", function() {
+    readyButton.disabled = true;
+    readyButton.textContent = "Waiting for other player...";
+    feedback.textContent = "Waiting for the other player...";
+    sendLiveMessage({ type: "ready" });
+  });
+</script>
+
+{{ endblock }}
