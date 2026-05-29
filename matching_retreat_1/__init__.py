@@ -61,6 +61,9 @@ class Group(BaseGroup):
         log = json.loads(self.trial_log_json or "[]")
         log.append(row)
         self.trial_log_json = json.dumps(log)
+    
+    # for saving cursor positions 
+    cursor_log_json = models.LongStringField(initial="[]")
 
 
 class Player(BasePlayer):
@@ -121,6 +124,21 @@ def live_game(player: Player, data):
                 player_id=player.id_in_group,
             )
         }
+
+    if msg_type == "cursor_trace":
+        g = player.group
+
+        trace_log = json.loads(g.cursor_log_json or "[]")
+        trace_log.append(dict(
+            player_id=player.id_in_group,
+            participant_code=player.participant.code,
+            trial=player.current_trial + 1,
+            samples=data.get("samples", []),
+            server_ts=time.time(),
+        ))
+        g.cursor_log_json = json.dumps(trace_log)
+
+        return
 
     # ---------------------------------------------------------------------
     # First click after intro. Wait until both players have clicked before

@@ -205,7 +205,7 @@
       You will be playing against another person. You will see their cursor as a black dot.
     </p>
     <p>
-      On each round, a hidden timer between 2 and 5 seconds will start.
+      A hidden timer will start on each round.
       Keep your cursor in LEFT or RIGHT when the timer ends. Your position at the deadline is your choice.
     </p>
     <p style="margin-top:1.5rem; font-weight:bold;">
@@ -276,6 +276,9 @@
 
   const totalValue = document.getElementById("total-points-value");
 
+  const POST_TRIAL_FREEZE_MS = 1500;
+  const PRE_TRIAL_WAIT_MS = 1000;
+
   async function sendPupilAnnotation(label, fields = {}) {
     try {
       await fetch("http://127.0.0.1:8765/annotation", {
@@ -294,6 +297,7 @@
     }
   }
 
+  let freezeCursors = false;
   let waitingForChoice = false;
   let finished = false;
   let choiceStartMs = null;
@@ -309,6 +313,39 @@
   let vcx = window.innerWidth / 2;
   let vcy = window.innerHeight / 2;
   const CURSOR_RADIUS = 11;
+
+  // Cursing tracking //////////////////////////////////////////////
+  let cursorSamples = [];
+  let cursorSampleInterval = null;
+  let trialStartPerfMs = null;
+
+  function startCursorRecording() {
+    cursorSamples = [];
+    trialStartPerfMs = performance.now();
+
+    cursorSampleInterval = setInterval(function () {
+      cursorSamples.push({
+        t_ms: Math.round(performance.now() - trialStartPerfMs),
+        x: vcx / window.innerWidth,
+        y: vcy / window.innerHeight,
+        zone: getCurrentZoneChoice(),
+      });
+    }, 33); // ~30 Hz
+  }
+
+  function stopCursorRecordingAndSend() {
+    if (cursorSampleInterval !== null) {
+      clearInterval(cursorSampleInterval);
+      cursorSampleInterval = null;
+    }
+
+    liveSend({
+      type: "cursor_trace",
+      samples: cursorSamples,
+    });
+  }
+
+  ///////////////////////////////////////////////////////////
 
   function renderVirtualCursor() {
     virtualCursor.style.left = `${vcx}px`;
@@ -369,20 +406,6 @@
     pointerlockWarning.style.display = locked ? "none" : "block";
   });
 
-  document.addEventListener("mousemove", function (e) {
-    if (finished) return;
-    if (document.pointerLockElement !== document.body) return;
-
-    vcx = clamp(vcx + e.movementX, CURSOR_RADIUS, window.innerWidth - CURSOR_RADIUS);
-    vcy = clamp(vcy + e.movementY, CURSOR_RADIUS, window.innerHeight - CURSOR_RADIUS);
-    renderVirtualCursor();
-    sendCursorPosition(false);
-
-    if (waitingForChoice) {
-      checkZoneChoice();
-    }
-  });
-
   window.addEventListener("resize", function () {
     vcx = clamp(vcx, CURSOR_RADIUS, window.innerWidth - CURSOR_RADIUS);
     vcy = clamp(vcy, CURSOR_RADIUS, window.innerHeight - CURSOR_RADIUS);
@@ -414,14 +437,20 @@
     if (!waitingForChoice || finished) return;
 
     waitingForChoice = false;
+    freezeCursors = true;
     fadeGameArea();
+    showCursorTask(false);
 
     const choice = getCurrentZoneChoice();
     lastSubmittedChoice = choice;
     lastChoiceCursorX = vcx;
     lastChoiceCursorY = vcy;
 
-    const rt_ms = (choiceStartMs === null) ? null : Math.round(performance.now() - choiceStartMs);
+    const rt_ms = (choiceStartMs === null)
+      ? null
+      : Math.round(performance.now() - choiceStartMs);
+
+    stopCursorRecordingAndSend();
 
     sendPupilAnnotation("deadline_choice_submitted", {
       choice: choice,
@@ -431,7 +460,13 @@
       cursor_y: lastChoiceCursorY,
     });
 
-    liveSend({ type: "choice", choice: choice, rt_ms: rt_ms });
+    liveSend({
+      type: "choice",
+      choice: choice,
+      rt_ms: rt_ms,
+      cursor_x: vcx / window.innerWidth,
+      cursor_y: vcy / window.innerHeight,
+    });
   }
 
   function getChoiceColor(choice) {
@@ -578,6 +613,8 @@
   function startChoicePhase(timerMs) {
     if (finished) return;
 
+    freezeCursors = false;
+
     if (deadlineTimeoutId !== null) {
       clearTimeout(deadlineTimeoutId);
       deadlineTimeoutId = null;
@@ -593,7 +630,7 @@
       if (finished) return;
 
       unfadeGameArea();
-      statusText.textContent = "Move now — your position at the deadline counts";
+      statusText.textContent = "Move now";
 
       resetVirtualCursorToCenter();
       showCursorTask(true);
@@ -612,11 +649,12 @@
 
       choiceStartMs = performance.now();
       waitingForChoice = true;
+      startCursorRecording();
 
       deadlineTimeoutId = setTimeout(function () {
         submitDeadlineChoice();
       }, currentTimerMs);
-    }, 2000);
+    }, PRE_TRIAL_WAIT_MS);
   }
 
   introOverlay.addEventListener("click", function () {
@@ -628,14 +666,21 @@
     statusText.textContent = "Wait...";
   });
 
-  document.addEventListener("click", function () {
-    if (!finished && document.pointerLockElement !== document.body) {
-      requestPointerLock();
-    }
+  document.addEventListener("mousemove", function (e) {
+    if (finished) return;
+    if (!waitingForChoice || freezeCursors) return;
+    if (document.pointerLockElement !== document.body) return;
+
+    vcx = clamp(vcx + e.movementX, CURSOR_RADIUS, window.innerWidth - CURSOR_RADIUS);
+    vcy = clamp(vcy + e.movementY, CURSOR_RADIUS, window.innerHeight - CURSOR_RADIUS);
+
+    renderVirtualCursor();
+    sendCursorPosition(false);
+    checkZoneChoice();
   });
 
   document.addEventListener("keydown", function (e) {
-    if (finished || !waitingForChoice) return;
+    if (finished || !waitingForChoice || freezeCursors) return;
     if (e.repeat) return;
 
     const key = (e.key || "").toLowerCase();
@@ -659,7 +704,9 @@
 
   function liveRecv(data) {
     if (data.type === "opponent_cursor") {
-      renderOpponentCursorNorm(data.x, data.y);
+        if (!freezeCursors) {
+          renderOpponentCursorNorm(data.x, data.y);
+      }
 
     } else if (data.type === "waiting_start") {
       trialNumberSpan.textContent = data.trial;
@@ -690,8 +737,26 @@
       waitingForChoice = false;
 
       setTimeout(function () {
-        const choiceText = data.your_choice === "NONE" ? "outside both zones" : data.your_choice;
-        statusText.textContent = "You won " + data.reward + " points";
+
+
+        const yourChoiceText =
+          data.your_choice === "NONE"
+            ? "outside"
+            : data.your_choice;
+
+        const otherChoiceText =
+          data.other_choice === "NONE"
+            ? "outside"
+            : data.other_choice;
+
+        statusText.innerHTML =
+          `You: <strong>${yourChoiceText}</strong>
+          &nbsp;&nbsp;|&nbsp;&nbsp;
+          Other: <strong>${otherChoiceText}</strong>
+          <br>
+          +${data.reward} points`;
+
+        
         animateRewardEffects(data.reward, lastSubmittedChoice);
 
         sendPupilAnnotation("feedback_shown", {
@@ -723,7 +788,7 @@
         setTimeout(function () {
           unfadeGameArea();
           startChoicePhase(data.next_timer_ms);
-        }, 1500);
+        }, POST_TRIAL_FREEZE_MS);
 
       }, 0);
     }
