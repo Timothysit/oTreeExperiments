@@ -53,7 +53,38 @@ SESSION_CONFIGS = [
         display_name="Matching Blocks",
         app_sequence=["matching_blocks"],
         num_demo_participants=2,
-    )
+    ),
+    dict(
+        name="matching_payoff_risk",
+        display_name="Risky choice matching (two players)",
+        app_sequence=["matching_payoff_risk"],
+        num_demo_participants=2,
+        game_mode="multi",
+        num_trials_multi=100,
+        safe_side="L",
+        safe_prob_pct=100,
+        safe_payoff=10,
+        risky_prob1_pct=50,
+        risky_payoff1=20,
+        risky_prob2_pct=0,
+        risky_payoff2=0,
+    ),
+    dict(
+        name="matching_payoff_risk_single",
+        display_name="Risky choice matching (single player)",
+        app_sequence=["matching_payoff_risk"],
+        num_demo_participants=1,
+        game_mode="single",
+        single_opponent="random",
+        num_trials_single=100,
+        safe_side="L",
+        safe_prob_pct=100,
+        safe_payoff=10,
+        risky_prob1_pct=50,
+        risky_payoff1=20,
+        risky_prob2_pct=0,
+        risky_payoff2=0,
+    ),
 ]
 
 # if you set a property in SESSION_CONFIG_DEFAULTS, it will be inherited by all configs
@@ -67,9 +98,10 @@ SESSION_CONFIG_DEFAULTS = dict(
 
 SESSION_CONFIG_CHOICES = dict(
     game_mode=["single", "multi"],
-    single_opponent=["follow", "anticipate"],
+    single_opponent=["follow", "adaptive_follower", "anticipate", "random", "predictive", "2ab"],
     single_opponent_p1=["random", "algo_A", "algo_B"],
     single_opponent_p2=["random", "algo_A", "algo_B"],
+    safe_side=["L", "R"],
 )
 
 PARTICIPANT_FIELDS = []
