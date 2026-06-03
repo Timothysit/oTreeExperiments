@@ -1,0 +1,78 @@
+{{ block title }}
+Setup
+{{ endblock }}
+
+{{ block content }}
+
+{{ if show_game_mode }}
+  <p><strong>Game mode:</strong></p>
+  {{ form.game_mode }}
+{{ else }}
+  <p><strong>Game mode:</strong> {{ selected_game_mode_label }}</p>
+{{ endif }}
+
+<div style="margin-top: 1.5rem;">
+  <p><strong>Guaranteed/high-probability side:</strong></p>
+  {{ form.safe_side }}
+
+  <p><strong>Guaranteed/high-probability side reward probability (%):</strong></p>
+  {{ form.safe_prob_pct }}
+
+  <p><strong>Guaranteed/high-probability side payoff:</strong></p>
+  {{ form.safe_payoff }}
+
+  <p><strong>Other side reward probability 1 (%):</strong></p>
+  {{ form.risky_prob1_pct }}
+
+  <p><strong>Other side payoff 1:</strong></p>
+  {{ form.risky_payoff1 }}
+
+  <p><strong>Other side reward probability 2 (%):</strong></p>
+  {{ form.risky_prob2_pct }}
+
+  <p><strong>Other side payoff 2:</strong></p>
+  {{ form.risky_payoff2 }}
+</div>
+
+{{ if show_single_settings }}
+<div id="single-settings" style="margin-top: 1.5rem;">
+  <p><strong>Computer opponent:</strong></p>
+  {{ form.single_opponent }}
+
+  <p><strong>Number of single-player trials:</strong></p>
+  {{ form.num_trials_single }}
+</div>
+{{ endif }}
+
+{{ if show_multi_settings }}
+<div id="multi-settings" style="margin-top: 1.5rem;">
+  <p><strong>Number of multiplayer trials:</strong></p>
+  {{ form.num_trials_multi }}
+</div>
+{{ endif }}
+
+<br>
+{{ next_button }}
+
+<script>
+  const singleSettings = document.getElementById("single-settings");
+  const multiSettings = document.getElementById("multi-settings");
+  const modeInputs = document.querySelectorAll('input[name="game_mode"]');
+  const selectedMode = "{{ selected_game_mode }}";
+
+  function syncModeSettings() {
+    if (!singleSettings || !multiSettings) return;
+
+    const selected = document.querySelector('input[name="game_mode"]:checked');
+    const mode = selected ? selected.value : selectedMode;
+    singleSettings.style.display = mode === "single" ? "block" : "none";
+    multiSettings.style.display = mode === "multi" ? "block" : "none";
+  }
+
+  modeInputs.forEach(function (input) {
+    input.addEventListener("change", syncModeSettings);
+  });
+  syncModeSettings();
+</script>
+
+{{ endblock }}

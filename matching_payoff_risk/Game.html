@@ -1,0 +1,503 @@
+{{ block title }}{{ endblock }}
+
+{{ block content }}
+
+<style>
+  :root {
+    --right-color: #F45B69;
+    --left-color: #2594E8;
+    --reward-color: #D08A00;
+    --noreward-color: #8A8A8A;
+  }
+
+  body {
+    font-size: 22px;
+  }
+
+  #intro-overlay p {
+    font-size: 1.35rem;
+    line-height: 1.55;
+  }
+
+  #game-area.faded {
+    opacity: 0.4;
+    filter: grayscale(70%);
+    pointer-events: none;
+    transition: opacity 0.25s ease, filter 0.25s ease;
+  }
+
+  #cursor-task {
+    position: fixed;
+    inset: 0;
+    display: block;
+    z-index: 2;
+    pointer-events: none;
+  }
+
+  .choice-zone {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 20vw;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
+    font-weight: bold;
+    color: white;
+    border: none;
+    opacity: 0.35;
+    transition: opacity 0.2s ease;
+  }
+
+  #cursor-task.choice-enabled .choice-zone {
+    opacity: 0.5;
+  }
+
+  .choice-zone.active {
+    opacity: 0.7;
+  }
+
+  #left-zone {
+    left: 0;
+    background: var(--left-color);
+  }
+
+  #right-zone {
+    right: 0;
+    background: var(--right-color);
+  }
+
+  #center-marker {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 18px;
+    height: 18px;
+    margin-left: -9px;
+    margin-top: -9px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.2);
+    border: 2px solid rgba(0,0,0,0.45);
+  }
+
+  #virtual-cursor {
+    position: absolute;
+    width: 22px;
+    height: 22px;
+    margin-left: -11px;
+    margin-top: -11px;
+    border-radius: 50%;
+    background: rgba(220, 53, 69, 0.9);
+    border: 2px solid white;
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.25);
+    pointer-events: none;
+    z-index: 8;
+  }
+
+  #zone-instructions,
+  #payoff-display,
+  #pointerlock-warning {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(255,255,255,0.92);
+    border-radius: 8px;
+    color: #222;
+  }
+
+  #zone-instructions {
+    top: 24px;
+    font-size: 1.1rem;
+    font-weight: 700;
+    padding: 0.5rem 1rem;
+  }
+
+  #payoff-display {
+    bottom: 24px;
+    font-size: 1rem;
+    font-weight: 700;
+    padding: 0.45rem 0.8rem;
+  }
+
+  #pointerlock-warning {
+    bottom: 82px;
+    font-size: 1rem;
+    padding: 0.45rem 0.8rem;
+    color: #444;
+    display: none;
+    pointer-events: auto;
+  }
+
+  #reward-effects {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 20;
+    overflow: hidden;
+  }
+
+  .reward-text,
+  .no-reward-text {
+    position: absolute;
+    font-size: 7.2rem;
+    font-weight: 800;
+    text-shadow: none;
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.8);
+    will-change: transform, opacity;
+    white-space: nowrap;
+  }
+
+  .reward-text {
+    color: #f4b400;
+  }
+
+  .no-reward-text {
+    color: rgba(120, 120, 120, 0.9);
+  }
+</style>
+
+<div id="intro-overlay" style="position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+            background-color:rgba(255,255,255,0.95); cursor:pointer; z-index:10;">
+  <div style="max-width:720px; text-align:center;">
+    <p>
+      Make each choice by moving the cursor to the <strong>left</strong> or
+      <strong>right</strong> side of the screen.
+    </p>
+    <p id="mode-description">
+      In two-player mode, one player wins when choices match and the other wins when choices differ.
+      You will not see the other player's cursor.
+    </p>
+    <p style="margin-top:1.5rem; font-weight:bold;">Click anywhere to begin</p>
+  </div>
+</div>
+
+<div id="cursor-task">
+  <div id="left-zone" class="choice-zone">LEFT</div>
+  <div id="right-zone" class="choice-zone">RIGHT</div>
+  <div id="zone-instructions">Move into LEFT or RIGHT to choose</div>
+  <div id="pointerlock-warning">Click the screen if cursor tracking pauses</div>
+  <div id="payoff-display"></div>
+  <div id="center-marker"></div>
+  <div id="virtual-cursor"></div>
+</div>
+
+<div id="reward-effects"></div>
+
+<div id="game-wrapper" style="
+       position:relative;
+       height:100vh;
+       display:flex;
+       align-items:flex-start;
+       justify-content:center;
+       padding-top:10vh;
+     ">
+
+  <div id="game-area" style="text-align:center; display:none; transform:scale(1.6);">
+    <div style="font-size:1.8rem; margin-top:1rem; line-height:1.4;">
+      Total points: <span id="total-points-value">0</span>
+    </div>
+
+    <div id="status-text" style="margin-bottom:3rem; font-size:2rem; font-weight:bold;">
+      Wait...
+    </div>
+
+    <div style="margin-bottom:3rem; font-size:1rem;">
+      Round <span id="trial-number">1</span> / <span id="trial-total">1</span>
+    </div>
+  </div>
+</div>
+
+<script>
+  const introOverlay = document.getElementById("intro-overlay");
+  const modeDescription = document.getElementById("mode-description");
+  const gameArea = document.getElementById("game-area");
+  const statusText = document.getElementById("status-text");
+  const trialNumberSpan = document.getElementById("trial-number");
+  const trialTotalSpan = document.getElementById("trial-total");
+  const totalValue = document.getElementById("total-points-value");
+
+  const cursorTask = document.getElementById("cursor-task");
+  const virtualCursor = document.getElementById("virtual-cursor");
+  const pointerlockWarning = document.getElementById("pointerlock-warning");
+  const payoffDisplay = document.getElementById("payoff-display");
+  const rewardEffects = document.getElementById("reward-effects");
+
+  const GAME_MODE = js_vars.game_mode;
+  const IS_SINGLE_PLAYER = GAME_MODE === "single";
+
+  if (IS_SINGLE_PLAYER) {
+    modeDescription.textContent = "In single-player mode, you play against a hidden random computer choice.";
+  }
+
+  let waitingForChoice = false;
+  let finished = false;
+  let choiceStartMs = null;
+  let lastSubmittedChoice = null;
+  let lastChoiceCursorX = null;
+  let lastChoiceCursorY = null;
+
+  let vcx = window.innerWidth / 2;
+  let vcy = window.innerHeight / 2;
+  const CURSOR_RADIUS = 11;
+
+  function renderVirtualCursor() {
+    virtualCursor.style.left = `${vcx}px`;
+    virtualCursor.style.top = `${vcy}px`;
+  }
+
+  function resetVirtualCursorToCenter() {
+    vcx = window.innerWidth / 2;
+    vcy = window.innerHeight / 2;
+    renderVirtualCursor();
+  }
+
+  function clamp(val, min, max) {
+    return Math.max(min, Math.min(max, val));
+  }
+
+  function fadeGameArea() {
+    gameArea.classList.add("faded");
+  }
+
+  function unfadeGameArea() {
+    gameArea.classList.remove("faded");
+  }
+
+  function showCursorTask(show) {
+    cursorTask.style.display = "block";
+    if (show) {
+      cursorTask.classList.add("choice-enabled");
+    } else {
+      cursorTask.classList.remove("choice-enabled");
+    }
+  }
+
+  function requestPointerLock() {
+    if (document.body.requestPointerLock && document.pointerLockElement !== document.body) {
+      const result = document.body.requestPointerLock();
+      if (result && result.catch) {
+        result.catch(function () {});
+      }
+    }
+  }
+
+  document.addEventListener("pointerlockchange", function () {
+    const locked = document.pointerLockElement === document.body;
+    pointerlockWarning.style.display = locked ? "none" : "block";
+  });
+
+  window.addEventListener("resize", function () {
+    vcx = clamp(vcx, CURSOR_RADIUS, window.innerWidth - CURSOR_RADIUS);
+    vcy = clamp(vcy, CURSOR_RADIUS, window.innerHeight - CURSOR_RADIUS);
+    renderVirtualCursor();
+  });
+
+  document.addEventListener("mousemove", function (e) {
+    if (finished || !waitingForChoice) return;
+    if (document.pointerLockElement !== document.body) return;
+
+    vcx = clamp(vcx + e.movementX, CURSOR_RADIUS, window.innerWidth - CURSOR_RADIUS);
+    vcy = clamp(vcy + e.movementY, CURSOR_RADIUS, window.innerHeight - CURSOR_RADIUS);
+    renderVirtualCursor();
+    checkZoneChoice();
+  });
+
+  function updateTrialUI(trial, total) {
+    trialNumberSpan.textContent = trial;
+    trialTotalSpan.textContent = total;
+  }
+
+  function updatePayoffDisplay(data) {
+    const safeLabel = data.safe_side === "L" ? "Left" : "Right";
+    const riskyLabel = data.safe_side === "L" ? "Right" : "Left";
+    payoffDisplay.textContent =
+      `${safeLabel}: ${data.safe_prob_pct}% for ${data.safe_payoff} points | `
+      + `${riskyLabel}: ${data.risky_prob1_pct}% for ${data.risky_payoff1} points`
+      + ` or ${data.risky_prob2_pct}% for ${data.risky_payoff2} points`;
+  }
+
+  function getChoiceColor(choice) {
+    if (choice === "L") return "var(--left-color)";
+    if (choice === "R") return "var(--right-color)";
+    return "var(--reward-color)";
+  }
+
+  function choiceLabel(choice) {
+    if (choice === "L") return "Left";
+    if (choice === "R") return "Right";
+    return "n/a";
+  }
+
+  function animateRewardEffects(reward, choice) {
+    let cx = lastChoiceCursorX == null ? window.innerWidth / 2 : lastChoiceCursorX;
+    let cy = lastChoiceCursorY == null ? window.innerHeight / 2 : lastChoiceCursorY;
+    const el = document.createElement("div");
+    el.className = reward > 0 ? "reward-text" : "no-reward-text";
+    el.textContent = reward > 0 ? `+${reward}` : "0";
+    el.style.left = `${cx}px`;
+    el.style.top = `${cy}px`;
+    el.style.color = reward > 0 ? getChoiceColor(choice) : "var(--noreward-color)";
+    rewardEffects.appendChild(el);
+    el.animate([
+      { opacity: 0, transform: "translate(-50%, -50%) scale(0.8)" },
+      { opacity: 0.95, transform: "translate(-50%, -50%) scale(1.15)", offset: 0.2 },
+      { opacity: 0.95, transform: "translate(-50%, -30%) scale(1.0)", offset: 0.65 },
+      { opacity: 0, transform: "translate(-50%, -10%) scale(0.75)" },
+    ], {
+      duration: 1100,
+      easing: "cubic-bezier(0.22, 0.8, 0.2, 1)",
+      fill: "forwards",
+    });
+    setTimeout(function () { el.remove(); }, 1150);
+  }
+
+  function checkZoneChoice() {
+    if (!waitingForChoice || finished) return;
+
+    const leftZone = document.getElementById("left-zone");
+    const rightZone = document.getElementById("right-zone");
+    leftZone.classList.remove("active");
+    rightZone.classList.remove("active");
+
+    if (vcx <= window.innerWidth * 0.20) {
+      leftZone.classList.add("active");
+      submitChoice("L");
+    } else if (vcx >= window.innerWidth * 0.80) {
+      rightZone.classList.add("active");
+      submitChoice("R");
+    }
+  }
+
+  function submitChoice(choice) {
+    if (!waitingForChoice || finished) return;
+
+    waitingForChoice = false;
+    fadeGameArea();
+    showCursorTask(false);
+    lastSubmittedChoice = choice;
+    lastChoiceCursorX = vcx;
+    lastChoiceCursorY = vcy;
+
+    const rtMs = choiceStartMs === null ? null : Math.round(performance.now() - choiceStartMs);
+    liveSend({ type: "choice", choice: choice, rt_ms: rtMs });
+  }
+
+  function startChoicePhase() {
+    if (finished) return;
+
+    statusText.textContent = "Wait...";
+    waitingForChoice = false;
+    fadeGameArea();
+    showCursorTask(false);
+
+    setTimeout(function () {
+      if (finished) return;
+      unfadeGameArea();
+      statusText.textContent = "Choose now";
+      resetVirtualCursorToCenter();
+      showCursorTask(true);
+      requestPointerLock();
+      document.getElementById("left-zone").classList.remove("active");
+      document.getElementById("right-zone").classList.remove("active");
+      choiceStartMs = performance.now();
+      waitingForChoice = true;
+    }, 1000);
+  }
+
+  introOverlay.addEventListener("click", function () {
+    introOverlay.style.display = "none";
+    gameArea.style.display = "block";
+    resetVirtualCursorToCenter();
+    requestPointerLock();
+    liveSend({ type: "start" });
+    statusText.textContent = "Wait...";
+  });
+
+  document.addEventListener("click", function () {
+    if (!finished && introOverlay.style.display === "none") {
+      requestPointerLock();
+    }
+  });
+
+  document.addEventListener("keydown", function (e) {
+    if (finished || !waitingForChoice || e.repeat) return;
+    const key = (e.key || "").toLowerCase();
+    if (key === "f") {
+      e.preventDefault();
+      submitChoice("L");
+    } else if (key === "j") {
+      e.preventDefault();
+      submitChoice("R");
+    }
+  });
+
+  function liveRecv(data) {
+    if (data.type === "waiting_start") {
+      updateTrialUI(data.trial, data.trial_total);
+      totalValue.textContent = data.total_points;
+      waitingForChoice = false;
+      fadeGameArea();
+      statusText.textContent = data.message || "Waiting for the other player...";
+
+    } else if (data.type === "ready") {
+      updateTrialUI(data.trial, data.trial_total);
+      totalValue.textContent = data.total_points;
+      updatePayoffDisplay(data);
+      if (data.phase === "single") {
+        const opponentLabels = {
+          random: "a hidden random computer choice",
+          predictive: "a hidden predictive computer opponent",
+          "2ab": "a hidden 2AB computer opponent",
+        };
+        modeDescription.textContent = `In single-player mode, you play against ${opponentLabels[data.single_opponent] || "a hidden computer opponent"}.`;
+      }
+      statusText.textContent = data.phase === "single" ? "Single-player block: wait..." : "Two-player block: wait...";
+      startChoicePhase();
+
+    } else if (data.type === "wait_opponent") {
+      updateTrialUI(data.trial, data.trial_total);
+      totalValue.textContent = data.total_points;
+      waitingForChoice = false;
+      fadeGameArea();
+      statusText.textContent = "Waiting for the other player...";
+
+    } else if (data.type === "feedback") {
+      updateTrialUI(data.trial, data.trial_total);
+      totalValue.textContent = data.total_points;
+      waitingForChoice = false;
+
+      const yourChoiceText = choiceLabel(data.your_choice);
+      const otherChoiceText = choiceLabel(data.other_choice);
+      const otherLabel = data.phase === "single" ? "Computer" : "Other";
+
+      statusText.innerHTML =
+        `You: <strong>${yourChoiceText}</strong>`
+        + ` &nbsp;|&nbsp; ${otherLabel}: <strong>${otherChoiceText}</strong><br>`
+        + `+${data.reward} points`;
+      animateRewardEffects(data.reward, lastSubmittedChoice);
+
+      if (data.is_last) {
+        finished = true;
+        if (document.exitPointerLock) {
+          document.exitPointerLock();
+        }
+        setTimeout(function () {
+          const form = document.getElementById("form");
+          if (form) form.submit();
+        }, 1500);
+        return;
+      }
+
+      setTimeout(function () {
+        if (data.next_trial) {
+          updateTrialUI(data.next_trial, data.trial_total);
+        }
+        startChoicePhase();
+      }, 1500);
+    }
+  }
+</script>
+
+{{ endblock }}
