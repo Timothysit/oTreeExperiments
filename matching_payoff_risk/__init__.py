@@ -26,7 +26,7 @@ class C(BaseConstants):
 def get_single_algo(player):
     pv = player.participant.vars
     if "matching_payoff_risk_single_algo" not in pv:
-        pv["matching_payoff_risk_single_algo"] = MatchingPennies2(N=3, alpha=0.05, invert_prediction=True)
+        pv["matching_payoff_risk_single_algo"] = MatchingPennies2(N=3, alpha=0.05, invert_prediction=False)
     return pv["matching_payoff_risk_single_algo"]
 
 
