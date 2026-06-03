@@ -4,12 +4,61 @@ Setup
 
 {{ block content }}
 
-<p>Number of multiplayer trials:</p>
+{{ if show_game_mode }}
+  <p><strong>Game mode:</strong></p>
+  {{ form.game_mode }}
+{{ else }}
+  <p><strong>Game mode:</strong> {{ selected_game_mode_label }}</p>
+{{ endif }}
 
-{{ form.num_trials_multi }}
+{{ if show_single_settings }}
+<div id="single-settings" style="margin-top: 1.5rem;">
+  <p><strong>Single-player opponent:</strong></p>
+  {{ form.single_opponent }}
+
+  <p><strong>Opponent reaction time (% of participant calibration average):</strong></p>
+  {{ form.follow_reaction_time_pct }}
+
+  <p><strong>Opponent top speed (% of participant calibration average):</strong></p>
+  {{ form.follow_speed_pct }}
+
+  <p><strong>Anticipate warmup trials:</strong></p>
+  {{ form.anticipate_warmup_trials }}
+
+  <p><strong>Number of single-player trials:</strong></p>
+  {{ form.num_trials_single }}
+</div>
+{{ endif }}
+
+{{ if show_multi_settings }}
+<div id="multi-settings" style="margin-top: 1.5rem;">
+  <p><strong>Number of multiplayer trials:</strong></p>
+  {{ form.num_trials_multi }}
+</div>
+{{ endif }}
 
 <br><br>
 
 {{ next_button }}
+
+<script>
+  const singleSettings = document.getElementById("single-settings");
+  const multiSettings = document.getElementById("multi-settings");
+  const modeInputs = document.querySelectorAll('input[name="game_mode"]');
+
+  function syncModeSettings() {
+    if (!singleSettings || !multiSettings || modeInputs.length === 0) return;
+
+    const selected = document.querySelector('input[name="game_mode"]:checked');
+    const mode = selected ? selected.value : "multi";
+    singleSettings.style.display = mode === "single" ? "block" : "none";
+    multiSettings.style.display = mode === "multi" ? "block" : "none";
+  }
+
+  modeInputs.forEach(function (input) {
+    input.addEventListener("change", syncModeSettings);
+  });
+  syncModeSettings();
+</script>
 
 {{ endblock }}

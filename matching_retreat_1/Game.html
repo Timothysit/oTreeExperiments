@@ -156,6 +156,7 @@
     border-radius: 10px;
     color: #444;
     display: none;
+    pointer-events: auto;
   }
 
   #reward-effects {
@@ -202,7 +203,7 @@
       <strong>left</strong> or <strong>right</strong> side of the screen.
     </p>
     <p>
-      You will be playing against another person. You will see their cursor as a black dot.
+      <span id="opponent-description">You will be playing against another person. You will see their cursor as a black dot.</span>
     </p>
     <p>
       A hidden timer will start on each round.
@@ -264,6 +265,7 @@
 
 <script>
   const introOverlay = document.getElementById("intro-overlay");
+  const opponentDescription = document.getElementById("opponent-description");
   const gameArea = document.getElementById("game-area");
   const statusText = document.getElementById("status-text");
   const trialNumberSpan = document.getElementById("trial-number");
@@ -278,6 +280,20 @@
 
   const POST_TRIAL_FREEZE_MS = 1500;
   const PRE_TRIAL_WAIT_MS = 1000;
+  const PRE_GO_STILL_MIN_MS = 2000;
+  const PRE_GO_STILL_MAX_MS = 4000;
+  const PRE_GO_MOVEMENT_THRESHOLD_PX = 1;
+  const GAME_MODE = js_vars.game_mode;
+  const IS_SINGLE_PLAYER = GAME_MODE === "single";
+  const NUM_CALIBRATION_TRIALS = js_vars.calibration_trials || 10;
+  const SINGLE_OPPONENT_TYPE = js_vars.single_opponent_type || "follow";
+  const FOLLOW_REACTION_TIME_PCT = Number(js_vars.follow_reaction_time_pct || 100);
+  const FOLLOW_SPEED_PCT = Number(js_vars.follow_speed_pct || 80);
+  const ANTICIPATE_WARMUP_TRIALS = Number(js_vars.anticipate_warmup_trials || 5);
+
+  if (IS_SINGLE_PLAYER) {
+    opponentDescription.textContent = "You will be playing against the computer.";
+  }
 
   async function sendPupilAnnotation(label, fields = {}) {
     try {
@@ -306,15 +322,40 @@
   let lastSubmittedChoice = null;
   let lastChoiceCursorX = null;
   let lastChoiceCursorY = null;
+  let lastOpponentChoice = "NONE";
 
   let lastCursorSendMs = 0;
   const CURSOR_SEND_INTERVAL_MS = 33; // about 30 Hz
 
   let vcx = window.innerWidth / 2;
   let vcy = window.innerHeight / 2;
+  let opponentX = window.innerWidth / 2;
+  let opponentY = window.innerHeight / 2;
   const CURSOR_RADIUS = 11;
 
-  // Cursing tracking //////////////////////////////////////////////
+  let currentPhase = "multi";
+  let currentBlock = "multi";
+  let currentInstruction = "";
+  let calibrationAvgRtMs = null;
+  let calibrationAvgTopSpeedPxS = null;
+  let opponentAnimationId = null;
+  let opponentStarted = false;
+  let opponentTrialCount = 0;
+  let movementStarted = false;
+  let movementRtMs = null;
+  let topSpeedPxS = 0;
+  let lastMovePerfMs = null;
+  let lastMoveX = vcx;
+  let lastMoveY = vcy;
+  let latestVxPxS = 0;
+  let latestVyPxS = 0;
+  let trajectoryHistory = [];
+  let preGoStillnessActive = false;
+  let preGoLastMovementMs = null;
+  let preGoTimerId = null;
+  let preGoRequiredStillMs = PRE_GO_STILL_MIN_MS;
+
+  // Cursor tracking //////////////////////////////////////////////
   let cursorSamples = [];
   let cursorSampleInterval = null;
   let trialStartPerfMs = null;
@@ -328,6 +369,11 @@
         t_ms: Math.round(performance.now() - trialStartPerfMs),
         x: vcx / window.innerWidth,
         y: vcy / window.innerHeight,
+        vx_px_s: latestVxPxS,
+        vy_px_s: latestVyPxS,
+        speed_px_s: Math.sqrt(latestVxPxS * latestVxPxS + latestVyPxS * latestVyPxS),
+        opponent_x: opponentX / window.innerWidth,
+        opponent_y: opponentY / window.innerHeight,
         zone: getCurrentZoneChoice(),
       });
     }, 33); // ~30 Hz
@@ -358,11 +404,27 @@
     opponentCursor.style.top = `${y * window.innerHeight}px`;
   }
 
+  function renderOpponentCursorPx(x, y) {
+    opponentCursor.style.display = "block";
+    opponentCursor.style.left = `${x}px`;
+    opponentCursor.style.top = `${y}px`;
+  }
+
   function resetVirtualCursorToCenter() {
     vcx = window.innerWidth / 2;
     vcy = window.innerHeight / 2;
     renderVirtualCursor();
     sendCursorPosition(true);
+  }
+
+  function resetOpponentCursorToCenter(show = false) {
+    opponentX = window.innerWidth / 2;
+    opponentY = window.innerHeight / 2;
+    if (show) {
+      renderOpponentCursorPx(opponentX, opponentY);
+    } else {
+      opponentCursor.style.display = "none";
+    }
   }
 
   function clamp(val, min, max) {
@@ -380,8 +442,11 @@
   }
 
   function requestPointerLock() {
-    if (document.body.requestPointerLock) {
-      document.body.requestPointerLock();
+    if (document.body.requestPointerLock && document.pointerLockElement !== document.body) {
+      const result = document.body.requestPointerLock();
+      if (result && result.catch) {
+        result.catch(function () {});
+      }
     }
   }
 
@@ -422,6 +487,156 @@
     return "NONE";
   }
 
+  function getOpponentZoneChoice() {
+    const leftThreshold = window.innerWidth * 0.20;
+    const rightThreshold = window.innerWidth * 0.80;
+
+    if (opponentX <= leftThreshold) return "L";
+    if (opponentX >= rightThreshold) return "R";
+    return "NONE";
+  }
+
+  function instructionLabel(choice) {
+    if (choice === "L") return "LEFT";
+    if (choice === "R") return "RIGHT";
+    return "";
+  }
+
+  function stopOpponentAnimation() {
+    if (opponentAnimationId !== null) {
+      cancelAnimationFrame(opponentAnimationId);
+      opponentAnimationId = null;
+    }
+  }
+
+  function moveOpponentToward(targetX, targetY, maxStepPx) {
+    const dx = targetX - opponentX;
+    const dy = targetY - opponentY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist <= 0.001) return;
+
+    const step = Math.min(maxStepPx, dist);
+    opponentX += (dx / dist) * step;
+    opponentY += (dy / dist) * step;
+    opponentX = clamp(opponentX, CURSOR_RADIUS, window.innerWidth - CURSOR_RADIUS);
+    opponentY = clamp(opponentY, CURSOR_RADIUS, window.innerHeight - CURSOR_RADIUS);
+    renderOpponentCursorPx(opponentX, opponentY);
+  }
+
+  function predictFinalChoiceFromHistory(elapsedMs) {
+    const usable = trajectoryHistory.filter(function (trial) {
+      return trial.final_choice === "L" || trial.final_choice === "R";
+    });
+
+    if (usable.length < 3) {
+      if (latestVxPxS < -20) return "L";
+      if (latestVxPxS > 20) return "R";
+      return vcx < window.innerWidth / 2 ? "L" : "R";
+    }
+
+    const xNorm = vcx / window.innerWidth;
+    const vxNorm = latestVxPxS / Math.max(window.innerWidth, 1);
+    const distanceFromCenter = Math.abs(xNorm - 0.5);
+
+    let best = [];
+    usable.forEach(function (trial) {
+      if (!trial.samples || trial.samples.length === 0) return;
+
+      let nearest = trial.samples[0];
+      let nearestDt = Math.abs(nearest.t_ms - elapsedMs);
+      trial.samples.forEach(function (sample) {
+        const dt = Math.abs(sample.t_ms - elapsedMs);
+        if (dt < nearestDt) {
+          nearest = sample;
+          nearestDt = dt;
+        }
+      });
+
+      const sampleVxNorm = (nearest.vx_px_s || 0) / Math.max(window.innerWidth, 1);
+      const sampleDistance = Math.abs((nearest.x || 0.5) - 0.5);
+      const score =
+        Math.abs((nearest.x || 0.5) - xNorm) +
+        0.55 * Math.abs(sampleVxNorm - vxNorm) +
+        0.35 * Math.abs(sampleDistance - distanceFromCenter) +
+        nearestDt / 2500;
+
+      best.push({ score: score, final_choice: trial.final_choice });
+    });
+
+    best.sort(function (a, b) { return a.score - b.score; });
+    best = best.slice(0, Math.min(5, best.length));
+
+    let leftWeight = 0;
+    let rightWeight = 0;
+    best.forEach(function (item) {
+      const weight = 1 / Math.max(item.score, 0.001);
+      if (item.final_choice === "L") leftWeight += weight;
+      if (item.final_choice === "R") rightWeight += weight;
+    });
+
+    return leftWeight >= rightWeight ? "L" : "R";
+  }
+
+  function startSoloOpponent(block) {
+    stopOpponentAnimation();
+
+    if (!IS_SINGLE_PLAYER || block === "calibration") {
+      resetOpponentCursorToCenter(false);
+      return;
+    }
+
+    resetOpponentCursorToCenter(true);
+    opponentStarted = false;
+
+    const baseRt = calibrationAvgRtMs == null ? 300 : calibrationAvgRtMs;
+    const baseSpeed = calibrationAvgTopSpeedPxS == null
+      ? window.innerWidth * 0.9
+      : calibrationAvgTopSpeedPxS;
+    const reactionDelayMs = Math.max(0, baseRt * FOLLOW_REACTION_TIME_PCT / 100);
+    const maxSpeedPxS = Math.max(1, baseSpeed * FOLLOW_SPEED_PCT / 100);
+    const strategyIsAnticipate =
+      SINGLE_OPPONENT_TYPE === "anticipate" &&
+      opponentTrialCount >= ANTICIPATE_WARMUP_TRIALS &&
+      trajectoryHistory.length >= 3;
+
+    let lastFrameMs = performance.now();
+
+    function step(now) {
+      if (finished || !waitingForChoice || freezeCursors) {
+        opponentAnimationId = null;
+        return;
+      }
+
+      const elapsed = now - choiceStartMs;
+      const dt = Math.max(0, (now - lastFrameMs) / 1000);
+      lastFrameMs = now;
+
+      if (elapsed >= reactionDelayMs) {
+        opponentStarted = true;
+      }
+
+      if (opponentStarted) {
+        let targetX = vcx;
+        let targetY = vcy;
+
+        if (strategyIsAnticipate) {
+          const predicted = predictFinalChoiceFromHistory(elapsed);
+          targetX = predicted === "L"
+            ? window.innerWidth * 0.10
+            : window.innerWidth * 0.90;
+          targetY = vcy;
+        }
+
+        moveOpponentToward(targetX, targetY, maxSpeedPxS * dt);
+      }
+
+      opponentAnimationId = requestAnimationFrame(step);
+    }
+
+    opponentAnimationId = requestAnimationFrame(step);
+  }
+
   function checkZoneChoice() {
     if (!waitingForChoice || finished) return;
 
@@ -438,11 +653,16 @@
 
     waitingForChoice = false;
     freezeCursors = true;
+    stopOpponentAnimation();
     fadeGameArea();
     showCursorTask(false);
 
     const choice = getCurrentZoneChoice();
+    const opponentChoice = (IS_SINGLE_PLAYER && currentBlock !== "calibration")
+      ? getOpponentZoneChoice()
+      : "NONE";
     lastSubmittedChoice = choice;
+    lastOpponentChoice = opponentChoice;
     lastChoiceCursorX = vcx;
     lastChoiceCursorY = vcy;
 
@@ -452,18 +672,51 @@
 
     stopCursorRecordingAndSend();
 
+    if (IS_SINGLE_PLAYER) {
+      if (currentBlock === "calibration") {
+        calibrationAvgRtMs = movementRtMs;
+        calibrationAvgTopSpeedPxS = topSpeedPxS;
+      } else {
+        opponentTrialCount += 1;
+      }
+
+      trajectoryHistory.push({
+        trial: Number(trialNumberSpan.textContent),
+        block: currentBlock,
+        instructed_choice: currentInstruction,
+        final_choice: choice,
+        opponent_choice: opponentChoice,
+        movement_rt_ms: movementRtMs,
+        top_speed_px_s: topSpeedPxS,
+        samples: cursorSamples.slice(),
+      });
+    }
+
     sendPupilAnnotation("deadline_choice_submitted", {
       choice: choice,
+      opponent_choice: opponentChoice,
+      instructed_choice: currentInstruction,
       rt_ms: rt_ms,
+      movement_rt_ms: movementRtMs,
+      top_speed_px_s: topSpeedPxS,
       timer_ms: currentTimerMs,
       cursor_x: lastChoiceCursorX,
       cursor_y: lastChoiceCursorY,
+      opponent_x: opponentX,
+      opponent_y: opponentY,
     });
 
     liveSend({
       type: "choice",
       choice: choice,
       rt_ms: rt_ms,
+      movement_rt_ms: movementRtMs,
+      top_speed_px_s: topSpeedPxS,
+      instructed_choice: currentInstruction,
+      opponent_choice: opponentChoice,
+      opponent_x: opponentX / window.innerWidth,
+      opponent_y: opponentY / window.innerHeight,
+      opponent_strategy: SINGLE_OPPONENT_TYPE,
       cursor_x: vcx / window.innerWidth,
       cursor_y: vcy / window.innerHeight,
     });
@@ -610,18 +863,99 @@
     totalValue.textContent = total_points;
   }
 
-  function startChoicePhase(timerMs) {
+  function stopPreGoStillnessCheck() {
+    preGoStillnessActive = false;
+    if (preGoTimerId !== null) {
+      clearInterval(preGoTimerId);
+      preGoTimerId = null;
+    }
+  }
+
+  function newPreGoStillMs() {
+    return PRE_GO_STILL_MIN_MS + Math.random() * (PRE_GO_STILL_MAX_MS - PRE_GO_STILL_MIN_MS);
+  }
+
+  function beginGoPhase(phase) {
+    stopPreGoStillnessCheck();
+
+    if (finished) return;
+
+    statusText.textContent = currentBlock === "calibration"
+      ? `Go ${instructionLabel(currentInstruction)}`
+      : "Move now";
+
+    sendPupilAnnotation("trial_start", {
+      displayed_trial: trialNumberSpan.textContent,
+      phase: phase,
+      block: currentBlock,
+      instructed_choice: currentInstruction,
+      timer_ms: currentTimerMs,
+    });
+
+    choiceStartMs = performance.now();
+    lastMovePerfMs = choiceStartMs;
+    lastMoveX = vcx;
+    lastMoveY = vcy;
+    waitingForChoice = true;
+    startCursorRecording();
+    startSoloOpponent(currentBlock);
+
+    deadlineTimeoutId = setTimeout(function () {
+      submitDeadlineChoice();
+    }, currentTimerMs);
+  }
+
+  function waitForStillnessThenGo(phase) {
+    stopPreGoStillnessCheck();
+    preGoStillnessActive = true;
+    preGoLastMovementMs = performance.now();
+    preGoRequiredStillMs = newPreGoStillMs();
+    statusText.textContent = "Stay still";
+
+    preGoTimerId = setInterval(function () {
+      if (finished) {
+        stopPreGoStillnessCheck();
+        return;
+      }
+
+      const stillForMs = performance.now() - preGoLastMovementMs;
+      const remainingMs = Math.max(0, preGoRequiredStillMs - stillForMs);
+
+      if (remainingMs <= 0) {
+        beginGoPhase(phase);
+      }
+    }, 100);
+  }
+
+  function startChoicePhase(timerMs, phase = "multi", block = phase, instructedChoice = "") {
     if (finished) return;
 
     freezeCursors = false;
+    currentPhase = phase;
+    currentBlock = block || phase;
+    currentInstruction = instructedChoice || "";
+    movementStarted = false;
+    movementRtMs = null;
+    topSpeedPxS = 0;
+    latestVxPxS = 0;
+    latestVyPxS = 0;
+    lastMovePerfMs = null;
+    lastMoveX = vcx;
+    lastMoveY = vcy;
+    resetOpponentCursorToCenter(IS_SINGLE_PLAYER && currentBlock !== "calibration");
 
     if (deadlineTimeoutId !== null) {
       clearTimeout(deadlineTimeoutId);
       deadlineTimeoutId = null;
     }
+    stopPreGoStillnessCheck();
 
     currentTimerMs = timerMs;
-    statusText.textContent = "Wait...";
+    if (currentBlock === "calibration") {
+      statusText.textContent = "Stay still";
+    } else {
+      statusText.textContent = "Wait...";
+    }
     waitingForChoice = false;
     fadeGameArea();
     showCursorTask(false);
@@ -630,9 +964,12 @@
       if (finished) return;
 
       unfadeGameArea();
-      statusText.textContent = "Move now";
+      statusText.textContent = currentBlock === "calibration"
+        ? "Stay still"
+        : "Move now";
 
       resetVirtualCursorToCenter();
+      resetOpponentCursorToCenter(IS_SINGLE_PLAYER && currentBlock !== "calibration");
       showCursorTask(true);
       requestPointerLock();
 
@@ -641,19 +978,11 @@
       leftZone.classList.remove("active");
       rightZone.classList.remove("active");
 
-      sendPupilAnnotation("trial_start", {
-        displayed_trial: trialNumberSpan.textContent,
-        phase: "multi",
-        timer_ms: currentTimerMs,
-      });
-
-      choiceStartMs = performance.now();
-      waitingForChoice = true;
-      startCursorRecording();
-
-      deadlineTimeoutId = setTimeout(function () {
-        submitDeadlineChoice();
-      }, currentTimerMs);
+      if (IS_SINGLE_PLAYER && currentBlock === "calibration") {
+        waitForStillnessThenGo(phase);
+      } else {
+        beginGoPhase(phase);
+      }
     }, PRE_TRIAL_WAIT_MS);
   }
 
@@ -666,13 +995,53 @@
     statusText.textContent = "Wait...";
   });
 
+  document.addEventListener("click", function () {
+    if (!finished && introOverlay.style.display === "none") {
+      requestPointerLock();
+    }
+  });
+
   document.addEventListener("mousemove", function (e) {
     if (finished) return;
+
+    if (preGoStillnessActive) {
+      const movedDistance = Math.sqrt(e.movementX * e.movementX + e.movementY * e.movementY);
+      if (movedDistance >= PRE_GO_MOVEMENT_THRESHOLD_PX) {
+        preGoLastMovementMs = performance.now();
+        preGoRequiredStillMs = newPreGoStillMs();
+      }
+      return;
+    }
+
     if (!waitingForChoice || freezeCursors) return;
-    if (document.pointerLockElement !== document.body) return;
+
+    const now = performance.now();
+    const oldX = vcx;
+    const oldY = vcy;
 
     vcx = clamp(vcx + e.movementX, CURSOR_RADIUS, window.innerWidth - CURSOR_RADIUS);
     vcy = clamp(vcy + e.movementY, CURSOR_RADIUS, window.innerHeight - CURSOR_RADIUS);
+
+    const dx = vcx - oldX;
+    const dy = vcy - oldY;
+    const movedDistance = Math.sqrt(dx * dx + dy * dy);
+
+    if (!movementStarted && movedDistance >= 1 && choiceStartMs !== null) {
+      movementStarted = true;
+      movementRtMs = Math.max(0, Math.round(now - choiceStartMs));
+    }
+
+    if (lastMovePerfMs !== null) {
+      const dt = Math.max((now - lastMovePerfMs) / 1000, 0.001);
+      latestVxPxS = (vcx - lastMoveX) / dt;
+      latestVyPxS = (vcy - lastMoveY) / dt;
+      const horizontalSpeed = Math.abs(latestVxPxS);
+      topSpeedPxS = Math.max(topSpeedPxS, horizontalSpeed);
+    }
+
+    lastMovePerfMs = now;
+    lastMoveX = vcx;
+    lastMoveY = vcy;
 
     renderVirtualCursor();
     sendCursorPosition(false);
@@ -689,13 +1058,43 @@
     // but does not submit immediately. The deadline still determines choice.
     if (key === "f") {
       e.preventDefault();
+      const now = performance.now();
+      const oldX = vcx;
       vcx = CURSOR_RADIUS;
+      if (!movementStarted && choiceStartMs !== null) {
+        movementStarted = true;
+        movementRtMs = Math.max(0, Math.round(now - choiceStartMs));
+      }
+      if (lastMovePerfMs !== null) {
+        const dt = Math.max((now - lastMovePerfMs) / 1000, 0.001);
+        latestVxPxS = (vcx - oldX) / dt;
+        latestVyPxS = 0;
+        topSpeedPxS = Math.max(topSpeedPxS, Math.abs(latestVxPxS));
+      }
+      lastMovePerfMs = now;
+      lastMoveX = vcx;
+      lastMoveY = vcy;
       renderVirtualCursor();
       sendCursorPosition(true);
       checkZoneChoice();
     } else if (key === "j") {
       e.preventDefault();
+      const now = performance.now();
+      const oldX = vcx;
       vcx = window.innerWidth - CURSOR_RADIUS;
+      if (!movementStarted && choiceStartMs !== null) {
+        movementStarted = true;
+        movementRtMs = Math.max(0, Math.round(now - choiceStartMs));
+      }
+      if (lastMovePerfMs !== null) {
+        const dt = Math.max((now - lastMovePerfMs) / 1000, 0.001);
+        latestVxPxS = (vcx - oldX) / dt;
+        latestVyPxS = 0;
+        topSpeedPxS = Math.max(topSpeedPxS, Math.abs(latestVxPxS));
+      }
+      lastMovePerfMs = now;
+      lastMoveX = vcx;
+      lastMoveY = vcy;
       renderVirtualCursor();
       sendCursorPosition(true);
       checkZoneChoice();
@@ -704,6 +1103,7 @@
 
   function liveRecv(data) {
     if (data.type === "opponent_cursor") {
+        if (IS_SINGLE_PLAYER) return;
         if (!freezeCursors) {
           renderOpponentCursorNorm(data.x, data.y);
       }
@@ -718,9 +1118,16 @@
     } else if (data.type === "ready") {
       trialNumberSpan.textContent = data.trial;
       updatePointsUI(data.total_points);
+      currentPhase = data.phase || "multi";
+      currentBlock = data.block || data.phase || "multi";
+      currentInstruction = data.instructed_choice || "";
+      calibrationAvgRtMs = data.calibration_avg_rt_ms;
+      calibrationAvgTopSpeedPxS = data.calibration_avg_top_speed_px_s;
 
-      statusText.textContent = "Two-player block: wait...";
-      startChoicePhase(data.timer_ms);
+      statusText.textContent = currentBlock === "calibration"
+        ? "Stay still"
+        : (data.phase === "single" ? "Single-player block: wait..." : "Two-player block: wait...");
+      startChoicePhase(data.timer_ms, data.phase, currentBlock, currentInstruction);
 
     } else if (data.type === "wait_opponent") {
       trialNumberSpan.textContent = data.trial;
@@ -733,6 +1140,9 @@
     } else if (data.type === "feedback") {
       trialNumberSpan.textContent = data.trial;
       updatePointsUI(data.total_points);
+      currentBlock = data.block || data.phase || currentBlock;
+      calibrationAvgRtMs = data.calibration_avg_rt_ms;
+      calibrationAvgTopSpeedPxS = data.calibration_avg_top_speed_px_s;
 
       waitingForChoice = false;
 
@@ -749,24 +1159,41 @@
             ? "outside"
             : data.other_choice;
 
-        statusText.innerHTML =
-          `You: <strong>${yourChoiceText}</strong>
-          &nbsp;&nbsp;|&nbsp;&nbsp;
-          Other: <strong>${otherChoiceText}</strong>
-          <br>
-          +${data.reward} points`;
+        const otherLabel = data.phase === "single" ? "Computer" : "Other";
+
+        if (data.block === "calibration") {
+          const rtText = movementRtMs == null ? "n/a" : `${movementRtMs} ms`;
+          const speedText = Math.round(topSpeedPxS);
+          statusText.innerHTML =
+            `Calibration ${data.trial}/${NUM_CALIBRATION_TRIALS}
+            <br>
+            RT: <strong>${rtText}</strong>
+            &nbsp;&nbsp;|&nbsp;&nbsp;
+            Top speed: <strong>${speedText}</strong>`;
+        } else {
+          statusText.innerHTML =
+            `You: <strong>${yourChoiceText}</strong>
+            &nbsp;&nbsp;|&nbsp;&nbsp;
+            ${otherLabel}: <strong>${otherChoiceText}</strong>
+            <br>
+            +${data.reward} points`;
+        }
 
         
-        animateRewardEffects(data.reward, lastSubmittedChoice);
+        if (data.block !== "calibration") {
+          animateRewardEffects(data.reward, lastSubmittedChoice);
+        }
 
         sendPupilAnnotation("feedback_shown", {
           overall_trial: data.trial,
-          block: "multi",
+          block: data.block || data.phase || "multi",
           block_trial: data.trial,
           reward: data.reward,
           total_points: data.total_points,
           choice: lastSubmittedChoice,
           other_choice: data.other_choice,
+          movement_rt_ms: movementRtMs,
+          top_speed_px_s: topSpeedPxS,
         });
 
         if (data.is_last) {
@@ -787,7 +1214,12 @@
 
         setTimeout(function () {
           unfadeGameArea();
-          startChoicePhase(data.next_timer_ms);
+          const nextBlock = data.next_block || data.phase || "multi";
+          const nextInstruction = data.next_instructed_choice || "";
+          if (data.next_trial) {
+            trialNumberSpan.textContent = data.next_trial;
+          }
+          startChoicePhase(data.next_timer_ms, data.phase || "multi", nextBlock, nextInstruction);
         }, POST_TRIAL_FREEZE_MS);
 
       }, 0);

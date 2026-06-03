@@ -30,9 +30,23 @@ SESSION_CONFIGS = [
     ),
     dict(
         name="matching_retreat_1",
-        display_name="MP Real time",
+        display_name="MP Real time (two players)",
         app_sequence=["matching_retreat_1"],
         num_demo_participants=2,
+        game_mode="multi",
+        num_trials_multi=400,
+    ),
+    dict(
+        name="matching_retreat_1_single",
+        display_name="MP Real time (single player)",
+        app_sequence=["matching_retreat_1"],
+        num_demo_participants=1,
+        game_mode="single",
+        single_opponent="follow",
+        follow_reaction_time_pct=100,
+        follow_speed_pct=80,
+        anticipate_warmup_trials=5,
+        num_trials_single=400,
     ),
     dict(
         name="matching_blocks",
@@ -52,6 +66,8 @@ SESSION_CONFIG_DEFAULTS = dict(
 )
 
 SESSION_CONFIG_CHOICES = dict(
+    game_mode=["single", "multi"],
+    single_opponent=["follow", "anticipate"],
     single_opponent_p1=["random", "algo_A", "algo_B"],
     single_opponent_p2=["random", "algo_A", "algo_B"],
 )
