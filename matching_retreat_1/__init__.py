@@ -155,7 +155,11 @@ class Group(BaseGroup):
     num_trials_multi = models.IntegerField(min=1, max=500, initial=C.NUM_TRIALS_MULTI)
 
     single_opponent = models.StringField(
-        choices=[["follow", "Follow"], ["anticipate", "Anticipate"]],
+        choices=[
+            ["follow", "Follow"],
+            ["adaptive_follower", "Adaptive follower"],
+            ["anticipate", "Anticipate"],
+        ],
         initial="follow",
         blank=False,
         widget=widgets.RadioSelect,
@@ -266,7 +270,7 @@ def _single_choice(player: Player, data, choice: str, rt_ms: int):
 
     valid_choice = choice in ["L", "R"]
     opponent_valid = opponent_choice in ["L", "R"]
-    is_win = valid_choice and opponent_valid and choice != opponent_choice
+    is_win = valid_choice and (not opponent_valid or choice != opponent_choice)
     reward = C.REWARD_WIN if is_win else C.REWARD_LOSS
     if not valid_choice:
         outcome_reason = "no_choice"
@@ -337,6 +341,7 @@ def _single_choice(player: Player, data, choice: str, rt_ms: int):
             opponent_final_x=data.get("opponent_x"),
             opponent_final_y=data.get("opponent_y"),
             opponent_strategy=data.get("opponent_strategy"),
+            adaptive_follower_speed_pct=data.get("adaptive_follower_speed_pct"),
             follow_reaction_time_pct=g.follow_reaction_time_pct,
             follow_speed_pct=g.follow_speed_pct,
             anticipate_warmup_trials=g.anticipate_warmup_trials,
@@ -372,6 +377,7 @@ def _single_choice(player: Player, data, choice: str, rt_ms: int):
             outcome_reason=outcome_reason,
             is_last=is_last,
             next_trial=0 if is_last else _single_block_trial(player),
+            next_trial_total=0 if is_last else _single_block_total(player),
             next_timer_ms=next_timer_ms,
             next_block="calibration" if (not is_last and is_calibration_trial(player)) else "single",
             next_instructed_choice=player.instructed_choice,

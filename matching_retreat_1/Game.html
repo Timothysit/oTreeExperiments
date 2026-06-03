@@ -159,6 +159,23 @@
     pointer-events: auto;
   }
 
+  #adaptive-speed-display {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    transform: translateX(-50%);
+    z-index: 12;
+    display: none;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #222;
+    background: rgba(255,255,255,0.92);
+    border: 1px solid rgba(0,0,0,0.18);
+    border-radius: 8px;
+    padding: 0.45rem 0.8rem;
+    pointer-events: none;
+  }
+
   #reward-effects {
     position: fixed;
     inset: 0;
@@ -226,6 +243,9 @@
 </div>
 
 <div id="reward-effects"></div>
+<div id="adaptive-speed-display">
+  Adaptive follower speed: <span id="adaptive-speed-value">0</span>%
+</div>
 
 <div id="game-wrapper" style="
        position:relative;
@@ -257,7 +277,7 @@
     </div>
 
     <div style="margin-bottom:3rem; font-size:1rem; transform: translateX(-3%);">
-      <span>Round <span id="trial-number">1</span></span>
+      <span>Round <span id="trial-number">1</span><span id="trial-total-wrap"> / <span id="trial-total">1</span></span></span>
     </div>
 
   </div>
@@ -269,12 +289,16 @@
   const gameArea = document.getElementById("game-area");
   const statusText = document.getElementById("status-text");
   const trialNumberSpan = document.getElementById("trial-number");
+  const trialTotalWrap = document.getElementById("trial-total-wrap");
+  const trialTotalSpan = document.getElementById("trial-total");
 
   const cursorTask = document.getElementById("cursor-task");
   const virtualCursor = document.getElementById("virtual-cursor");
   const opponentCursor = document.getElementById("opponent-cursor");
   const pointerlockWarning = document.getElementById("pointerlock-warning");
   const rewardEffects = document.getElementById("reward-effects");
+  const adaptiveSpeedDisplay = document.getElementById("adaptive-speed-display");
+  const adaptiveSpeedValue = document.getElementById("adaptive-speed-value");
 
   const totalValue = document.getElementById("total-points-value");
 
@@ -287,6 +311,7 @@
   const IS_SINGLE_PLAYER = GAME_MODE === "single";
   const NUM_CALIBRATION_TRIALS = js_vars.calibration_trials || 10;
   const SINGLE_OPPONENT_TYPE = js_vars.single_opponent_type || "follow";
+  const IS_ADAPTIVE_FOLLOWER = SINGLE_OPPONENT_TYPE === "adaptive_follower";
   const FOLLOW_REACTION_TIME_PCT = Number(js_vars.follow_reaction_time_pct || 100);
   const FOLLOW_SPEED_PCT = Number(js_vars.follow_speed_pct || 80);
   const ANTICIPATE_WARMUP_TRIALS = Number(js_vars.anticipate_warmup_trials || 5);
@@ -341,6 +366,9 @@
   let opponentAnimationId = null;
   let opponentStarted = false;
   let opponentTrialCount = 0;
+  let adaptiveFollowerSpeedPct = FOLLOW_SPEED_PCT;
+  let adaptiveFollowerWinStreak = 0;
+  let adaptiveFollowerLossStreak = 0;
   let movementStarted = false;
   let movementRtMs = null;
   let topSpeedPxS = 0;
@@ -354,6 +382,8 @@
   let preGoLastMovementMs = null;
   let preGoTimerId = null;
   let preGoRequiredStillMs = PRE_GO_STILL_MIN_MS;
+
+  updateAdaptiveSpeedDisplay();
 
   // Cursor tracking //////////////////////////////////////////////
   let cursorSamples = [];
@@ -502,6 +532,48 @@
     return "";
   }
 
+  function currentOpponentSpeedPct() {
+    return IS_ADAPTIVE_FOLLOWER ? adaptiveFollowerSpeedPct : FOLLOW_SPEED_PCT;
+  }
+
+  function updateAdaptiveSpeedDisplay() {
+    if (!IS_ADAPTIVE_FOLLOWER) {
+      adaptiveSpeedDisplay.style.display = "none";
+      return;
+    }
+
+    adaptiveSpeedDisplay.style.display = "block";
+    adaptiveSpeedValue.textContent = Math.round(adaptiveFollowerSpeedPct);
+  }
+
+  function updateAdaptiveFollowerSpeed(data) {
+    if (!IS_ADAPTIVE_FOLLOWER || data.phase !== "single" || data.block === "calibration") {
+      return;
+    }
+
+    if (data.reward > 0) {
+      adaptiveFollowerLossStreak += 1;
+      adaptiveFollowerWinStreak = 0;
+    } else if (data.your_choice === "L" || data.your_choice === "R" || data.other_choice === "L" || data.other_choice === "R") {
+      adaptiveFollowerWinStreak += 1;
+      adaptiveFollowerLossStreak = 0;
+    } else {
+      adaptiveFollowerWinStreak = 0;
+      adaptiveFollowerLossStreak = 0;
+      return;
+    }
+
+    if (adaptiveFollowerLossStreak >= 5) {
+      adaptiveFollowerSpeedPct = clamp(adaptiveFollowerSpeedPct + 1, 1, 300);
+      adaptiveFollowerLossStreak = 0;
+    } else if (adaptiveFollowerWinStreak >= 5) {
+      adaptiveFollowerSpeedPct = clamp(adaptiveFollowerSpeedPct - 1, 1, 300);
+      adaptiveFollowerWinStreak = 0;
+    }
+
+    updateAdaptiveSpeedDisplay();
+  }
+
   function stopOpponentAnimation() {
     if (opponentAnimationId !== null) {
       cancelAnimationFrame(opponentAnimationId);
@@ -594,7 +666,7 @@
       ? window.innerWidth * 0.9
       : calibrationAvgTopSpeedPxS;
     const reactionDelayMs = Math.max(0, baseRt * FOLLOW_REACTION_TIME_PCT / 100);
-    const maxSpeedPxS = Math.max(1, baseSpeed * FOLLOW_SPEED_PCT / 100);
+    const maxSpeedPxS = Math.max(1, baseSpeed * currentOpponentSpeedPct() / 100);
     const strategyIsAnticipate =
       SINGLE_OPPONENT_TYPE === "anticipate" &&
       opponentTrialCount >= ANTICIPATE_WARMUP_TRIALS &&
@@ -646,10 +718,19 @@
 
     leftZone.classList.toggle("active", choice === "L");
     rightZone.classList.toggle("active", choice === "R");
+
+    if (IS_SINGLE_PLAYER && currentBlock === "calibration" && (choice === "L" || choice === "R")) {
+      submitDeadlineChoice();
+    }
   }
 
   function submitDeadlineChoice() {
     if (!waitingForChoice || finished) return;
+
+    if (deadlineTimeoutId !== null) {
+      clearTimeout(deadlineTimeoutId);
+      deadlineTimeoutId = null;
+    }
 
     waitingForChoice = false;
     freezeCursors = true;
@@ -704,6 +785,7 @@
       cursor_y: lastChoiceCursorY,
       opponent_x: opponentX,
       opponent_y: opponentY,
+      adaptive_follower_speed_pct: currentOpponentSpeedPct(),
     });
 
     liveSend({
@@ -717,6 +799,7 @@
       opponent_x: opponentX / window.innerWidth,
       opponent_y: opponentY / window.innerHeight,
       opponent_strategy: SINGLE_OPPONENT_TYPE,
+      adaptive_follower_speed_pct: currentOpponentSpeedPct(),
       cursor_x: vcx / window.innerWidth,
       cursor_y: vcy / window.innerHeight,
     });
@@ -863,6 +946,19 @@
     totalValue.textContent = total_points;
   }
 
+  function updateTrialUI(trial, trialTotal = null, phase = currentPhase) {
+    if (trial !== undefined && trial !== null) {
+      trialNumberSpan.textContent = trial;
+    }
+
+    if (phase === "single" && trialTotal !== undefined && trialTotal !== null) {
+      trialTotalSpan.textContent = trialTotal;
+      trialTotalWrap.style.display = "inline";
+    } else if (phase !== "single") {
+      trialTotalWrap.style.display = "none";
+    }
+  }
+
   function stopPreGoStillnessCheck() {
     preGoStillnessActive = false;
     if (preGoTimerId !== null) {
@@ -890,6 +986,7 @@
       block: currentBlock,
       instructed_choice: currentInstruction,
       timer_ms: currentTimerMs,
+      adaptive_follower_speed_pct: currentOpponentSpeedPct(),
     });
 
     choiceStartMs = performance.now();
@@ -930,6 +1027,7 @@
   function startChoicePhase(timerMs, phase = "multi", block = phase, instructedChoice = "") {
     if (finished) return;
 
+    updateAdaptiveSpeedDisplay();
     freezeCursors = false;
     currentPhase = phase;
     currentBlock = block || phase;
@@ -1109,14 +1207,14 @@
       }
 
     } else if (data.type === "waiting_start") {
-      trialNumberSpan.textContent = data.trial;
+      updateTrialUI(data.trial, data.trial_total, data.phase);
       updatePointsUI(data.total_points);
       waitingForChoice = false;
       fadeGameArea();
       statusText.textContent = data.message || "Waiting for the other player to start...";
 
     } else if (data.type === "ready") {
-      trialNumberSpan.textContent = data.trial;
+      updateTrialUI(data.trial, data.trial_total, data.phase);
       updatePointsUI(data.total_points);
       currentPhase = data.phase || "multi";
       currentBlock = data.block || data.phase || "multi";
@@ -1130,7 +1228,7 @@
       startChoicePhase(data.timer_ms, data.phase, currentBlock, currentInstruction);
 
     } else if (data.type === "wait_opponent") {
-      trialNumberSpan.textContent = data.trial;
+      updateTrialUI(data.trial, data.trial_total, data.phase);
       updatePointsUI(data.total_points);
 
       waitingForChoice = false;
@@ -1138,11 +1236,12 @@
       statusText.textContent = "Waiting for the other player...";
 
     } else if (data.type === "feedback") {
-      trialNumberSpan.textContent = data.trial;
+      updateTrialUI(data.trial, data.trial_total, data.phase);
       updatePointsUI(data.total_points);
       currentBlock = data.block || data.phase || currentBlock;
       calibrationAvgRtMs = data.calibration_avg_rt_ms;
       calibrationAvgTopSpeedPxS = data.calibration_avg_top_speed_px_s;
+      updateAdaptiveFollowerSpeed(data);
 
       waitingForChoice = false;
 
@@ -1217,7 +1316,7 @@
           const nextBlock = data.next_block || data.phase || "multi";
           const nextInstruction = data.next_instructed_choice || "";
           if (data.next_trial) {
-            trialNumberSpan.textContent = data.next_trial;
+            updateTrialUI(data.next_trial, data.next_trial_total || data.trial_total, data.phase);
           }
           startChoicePhase(data.next_timer_ms, data.phase || "multi", nextBlock, nextInstruction);
         }, POST_TRIAL_FREEZE_MS);
