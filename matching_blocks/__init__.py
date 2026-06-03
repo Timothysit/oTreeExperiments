@@ -82,6 +82,10 @@ def append_json_list(obj, field_name, row):
     setattr(obj, field_name, json.dumps(rows))
 
 
+def group_broadcast(group, payload):
+    return {p.id_in_group: payload for p in group.get_players()}
+
+
 def log_command(player, data):
     group = player.group
     append_json_list(group, "command_log_json", dict(
@@ -159,15 +163,13 @@ def live_game(player, data):
         group.shared_control_lock = bool(data.get("shared_control_lock", False))
         group.setup_done = True
 
-        return {
-            0: dict(
-                type="game_settings_set",
-                num_trials=group.num_trials,
-                shared_control_lock=group.shared_control_lock,
-                control_cutoff_ms_min=group.control_cutoff_ms_min,
-                control_cutoff_ms_max=group.control_cutoff_ms_max,
-            )
-        }
+        return group_broadcast(group, dict(
+            type="game_settings_set",
+            num_trials=group.num_trials,
+            shared_control_lock=group.shared_control_lock,
+            control_cutoff_ms_min=group.control_cutoff_ms_min,
+            control_cutoff_ms_max=group.control_cutoff_ms_max,
+        ))
 
     if msg_type == "ready":
         if not group.setup_done:
@@ -289,19 +291,17 @@ def live_game(player, data):
             server_ts_ms=now_ms(),
         ))
 
-        return {
-            0: dict(
-                type="result",
-                trial_index=group.trial_index,
-                num_trials=group.num_trials,
-                collision=collision,
-                p1_lane=p1_final_lane,
-                p2_lane=p2_final_lane,
-                rewards=rewards,
-                total_rewards=total_rewards,
-                is_last_trial=is_last_trial,
-            )
-        }
+        return group_broadcast(group, dict(
+            type="result",
+            trial_index=group.trial_index,
+            num_trials=group.num_trials,
+            collision=collision,
+            p1_lane=p1_final_lane,
+            p2_lane=p2_final_lane,
+            rewards=rewards,
+            total_rewards=total_rewards,
+            is_last_trial=is_last_trial,
+        ))
 
     if msg_type == "next_trial":
         if player.id_in_group != 1:
@@ -346,23 +346,19 @@ def live_game(player, data):
                 ),
             }
 
-        return {
-            0: dict(
-                type="game_over",
-            )
-        }
+        return group_broadcast(group, dict(
+            type="game_over",
+        ))
 
     if msg_type == "toggle_pause":
         if not group.paused:
             group.paused = True
             group.pause_started_ms = now_ms()
 
-            return {
-                0: dict(
-                    type="pause_state",
-                    paused=True,
-                )
-            }
+            return group_broadcast(group, dict(
+                type="pause_state",
+                paused=True,
+            ))
 
         pause_started = group.field_maybe_none("pause_started_ms")
         if pause_started is not None:
@@ -371,13 +367,11 @@ def live_game(player, data):
         group.paused = False
         group.pause_started_ms = None
 
-        return {
-            0: dict(
-                type="pause_state",
-                paused=False,
-                total_pause_ms=group.total_pause_ms,
-            )
-        }
+        return group_broadcast(group, dict(
+            type="pause_state",
+            paused=False,
+            total_pause_ms=group.total_pause_ms,
+        ))
 
     return {}
 
