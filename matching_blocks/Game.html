@@ -238,6 +238,13 @@ Corridor game
         </select>
       </p>
 
+      <p>
+        Control lock-out time range (ms):<br>
+        <input id="control-cutoff-min-input" type="number" min="0" max="{{ trial_duration_ms }}" value="{{ control_cutoff_ms_min }}">
+        to
+        <input id="control-cutoff-max-input" type="number" min="0" max="{{ trial_duration_ms }}" value="{{ control_cutoff_ms_max }}">
+      </p>
+
       <button id="setup-button" type="button" class="btn btn-primary">
         Continue to instructions
       </button>
@@ -270,6 +277,7 @@ Corridor game
       At a random time, your control may lock. When this happens, your cube will grey out.
       In shared-lock mode, both players lock at the same time.
       In independent-lock mode, you only see your own lock.
+      The lock time is drawn from the setup range.
     </p>
 
     <p>
@@ -360,6 +368,8 @@ Corridor game
   const setupButton = document.getElementById("setup-button");
   const lockModeInput = document.getElementById("lock-mode-input");
   const numTrialsInput = document.getElementById("num-trials-input");
+  const controlCutoffMinInput = document.getElementById("control-cutoff-min-input");
+  const controlCutoffMaxInput = document.getElementById("control-cutoff-max-input");
 
   const instructionOverlay = document.getElementById("instruction-overlay");
   const readyButton = document.getElementById("ready-button");
@@ -705,6 +715,8 @@ Corridor game
         type: "set_game_settings",
         num_trials: parseInt(numTrialsInput.value),
         shared_control_lock: lockModeInput.value === "shared",
+        control_cutoff_ms_min: parseInt(controlCutoffMinInput.value),
+        control_cutoff_ms_max: parseInt(controlCutoffMaxInput.value),
       });
     });
   }

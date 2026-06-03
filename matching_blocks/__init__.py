@@ -48,6 +48,8 @@ class Group(BaseGroup):
     control_cutoff_ms = models.IntegerField(blank=True, null=True)
     p1_control_cutoff_ms = models.IntegerField(blank=True, null=True)
     p2_control_cutoff_ms = models.IntegerField(blank=True, null=True)
+    control_cutoff_ms_min = models.IntegerField(initial=C.CONTROL_CUTOFF_MS_MIN)
+    control_cutoff_ms_max = models.IntegerField(initial=C.CONTROL_CUTOFF_MS_MAX)
 
     num_trials = models.IntegerField(initial=20)
 
@@ -100,22 +102,24 @@ def creating_session(subsession):
 def make_trial_setup(group):
     group.p1_start_lane = random.randrange(C.CORRIDOR_WIDTH)
     group.p2_start_lane = random.randrange(C.CORRIDOR_WIDTH)
+    cutoff_min = max(0, int(group.control_cutoff_ms_min or C.CONTROL_CUTOFF_MS_MIN))
+    cutoff_max = max(cutoff_min, int(group.control_cutoff_ms_max or C.CONTROL_CUTOFF_MS_MAX))
 
     if group.shared_control_lock:
         shared_cutoff = random.randint(
-            C.CONTROL_CUTOFF_MS_MIN,
-            C.CONTROL_CUTOFF_MS_MAX,
+            cutoff_min,
+            cutoff_max,
         )
         group.p1_control_cutoff_ms = shared_cutoff
         group.p2_control_cutoff_ms = shared_cutoff
     else:
         group.p1_control_cutoff_ms = random.randint(
-            C.CONTROL_CUTOFF_MS_MIN,
-            C.CONTROL_CUTOFF_MS_MAX,
+            cutoff_min,
+            cutoff_max,
         )
         group.p2_control_cutoff_ms = random.randint(
-            C.CONTROL_CUTOFF_MS_MIN,
-            C.CONTROL_CUTOFF_MS_MAX,
+            cutoff_min,
+            cutoff_max,
         )
 
 def live_game(player, data):
@@ -135,6 +139,23 @@ def live_game(player, data):
         n = max(1, min(500, n))
         group.num_trials = n
 
+        try:
+            cutoff_min = int(data.get("control_cutoff_ms_min") or group.control_cutoff_ms_min)
+        except (TypeError, ValueError):
+            cutoff_min = group.control_cutoff_ms_min
+
+        try:
+            cutoff_max = int(data.get("control_cutoff_ms_max") or group.control_cutoff_ms_max)
+        except (TypeError, ValueError):
+            cutoff_max = group.control_cutoff_ms_max
+
+        cutoff_min = max(0, min(C.TRIAL_DURATION_MS, cutoff_min))
+        cutoff_max = max(0, min(C.TRIAL_DURATION_MS, cutoff_max))
+        if cutoff_max < cutoff_min:
+            cutoff_min, cutoff_max = cutoff_max, cutoff_min
+
+        group.control_cutoff_ms_min = cutoff_min
+        group.control_cutoff_ms_max = cutoff_max
         group.shared_control_lock = bool(data.get("shared_control_lock", False))
         group.setup_done = True
 
@@ -143,6 +164,8 @@ def live_game(player, data):
                 type="game_settings_set",
                 num_trials=group.num_trials,
                 shared_control_lock=group.shared_control_lock,
+                control_cutoff_ms_min=group.control_cutoff_ms_min,
+                control_cutoff_ms_max=group.control_cutoff_ms_max,
             )
         }
 
@@ -260,6 +283,8 @@ def live_game(player, data):
             shared_control_lock=group.shared_control_lock,
             p1_control_cutoff_ms=group.field_maybe_none("p1_control_cutoff_ms"),
             p2_control_cutoff_ms=group.field_maybe_none("p2_control_cutoff_ms"),
+            control_cutoff_ms_min=group.control_cutoff_ms_min,
+            control_cutoff_ms_max=group.control_cutoff_ms_max,
             total_pause_ms=group.total_pause_ms,
             server_ts_ms=now_ms(),
         ))
