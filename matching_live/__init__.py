@@ -80,7 +80,7 @@ def get_bandit_env(player):
     pv = player.participant.vars
     if "bandit_env" not in pv:
         pv["bandit_env"] = BlockFlipperWithExtension(
-            p_high=0.6,
+            p_high=0.7,
             p_low=0.0,
             lambda_=25.0,
             extend_block=5,
