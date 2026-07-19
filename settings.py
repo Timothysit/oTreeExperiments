@@ -11,6 +11,19 @@ SESSION_CONFIGS = [
         num_trials_multi=100,
     ),
     dict(
+        name='matching_live_solo',
+        display_name='Matching Pennies (solo — no-switch control)',
+        app_sequence=['matching_live'],
+        num_demo_participants=1,
+        num_trials_single=400,
+        num_trials_multi=400,
+        # One participant per group; Part 2 is played against the SAME algo A
+        # instance as Part 1 (memory carries across the block boundary), so the
+        # only thing that changes at the boundary is the break/Part-2 framing.
+        solo=True,
+        algoA_trials_back=4,
+    ),
+    dict(
         name='guess_two_thirds',
         display_name="Guess 2/3 of the Average",
         app_sequence=['guess_two_thirds', 'payment_info'],

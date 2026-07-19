@@ -8,7 +8,10 @@ from .pupil_sync import send_pupil_annotation
 
 class C(BaseConstants):
     NAME_IN_URL = 'matching_live'
-    PLAYERS_PER_GROUP = 2
+    # None + explicit set_group_matrix() in creating_session, so the same app can
+    # run paired (2/group) or solo (1/group) depending on the session config.
+    PLAYERS_PER_GROUP = None
+    PAIRED_GROUP_SIZE = 2
     NUM_ROUNDS = 1  # all 10 trials happen on a single page
     NUM_TRIALS_SINGLE = 400  # fallback default
     NUM_TRIALS_MULTI = 400  # fallback default
@@ -23,11 +26,32 @@ class C(BaseConstants):
     SINGLE_FEEDBACK_DELAY_MS_MAX = 1000
 
 
-class Subsession(BaseSubsession):
+def is_solo_session(session) -> bool:
+    return bool(session.config.get("solo", False))
 
-    def creating_session(self):
-        # default mapping so player 2 never races ahead of Setup
-        self.session.vars.setdefault("single_opponent_by_role", {1: "random", 2: "random"})
+
+class Subsession(BaseSubsession):
+    pass
+
+
+# NOTE: this app uses oTree's "no-self" style, so oTree resolves creating_session
+# on the MODULE, not on the Subsession class. Defining it as a Subsession method
+# silently does nothing.
+def creating_session(subsession: Subsession):
+    # default mapping so player 2 never races ahead of Setup
+    subsession.session.vars.setdefault("single_opponent_by_role", {1: "random", 2: "random"})
+
+    # PLAYERS_PER_GROUP is None, so build the grouping explicitly here.
+    players = subsession.get_players()
+    size = 1 if is_solo_session(subsession.session) else C.PAIRED_GROUP_SIZE
+    if len(players) % size != 0:
+        raise ValueError(
+            f"matching_live: {len(players)} participants is not divisible by "
+            f"group size {size} (solo={is_solo_session(subsession.session)})"
+        )
+    subsession.set_group_matrix(
+        [players[i:i + size] for i in range(0, len(players), size)]
+    )
 
 
 def num_trials_single(player):
@@ -63,12 +87,14 @@ def get_single_algo(player):
     Stored in participant.vars so it persists across live calls.
     """
     pv = player.participant.vars
-
+    cfg = player.session.config
 
     if "single_algo" not in pv:
-        # choose parameters (match your MATLAB defaults)
-        N = pv.get("algoA_trials_back", 3)      # or whatever you want
-        alpha = pv.get("algoA_alpha", 0.05)
+        # Defaults match the live Bpod config the mice faced
+        # (MatchingPennies_protocol.m: trials_back = 4, alpha = 0.05).
+        # Session config can override; participant.vars overrides that.
+        N = pv.get("algoA_trials_back", cfg.get("algoA_trials_back", 4))
+        alpha = pv.get("algoA_alpha", cfg.get("algoA_alpha", 0.05))
         # If Algorithm A is meant to *beat* the human, invert_prediction=False.
         pv["single_algo"] = MatchingPennies2(N=N, alpha=alpha, invert_prediction=False)
 
@@ -303,6 +329,10 @@ def live_game(player: Player, data):
             # Algo A is matching pennies
             algo = get_single_algo(player)
             opponent_choice = algo.sample()
+            # Pre-update state = the read the opponent acted on for THIS trial
+            # (same convention as MatchingPennies_protocol.m, which logs
+            # min_pvalue before mp.update).
+            algo_state_pre = algo.to_dict()
         elif opponent_type == "algo_B":
             # Algorithm B is two-armed bandit
             env = get_bandit_env(player)
@@ -367,6 +397,14 @@ def live_game(player: Player, data):
             pupil_single_choice_sync=single_choice_sync,
         )
 
+        if opponent_type == "algo_A":
+            row.update(dict(
+                algo_trials_back=algo_state_pre.get("trials_back"),
+                algo_best_pvalue=algo_state_pre.get("best_pvalue"),
+                algo_best_p_left=algo_state_pre.get("best_p_left"),
+                algo_n_trials_seen=algo_state_pre.get("n_trials_seen"),
+            ))
+
         if opponent_type == "algo_B":
             row.update(dict(
                 reward_bin=reward_bin,              # 0/1 (from env.trial)
@@ -406,6 +444,84 @@ def live_game(player: Player, data):
                 reward=reward,
                 total_points=player.total_points,
                 is_last=is_last,
+                delay_ms=delay_ms,
+            )
+        }
+
+    # ---------- Phase 2 (solo control): same algo A instance as Part 1 ----------
+    # Memory is NOT reset at the boundary, so the opponent policy is continuous
+    # across all 800 trials and the only thing that changes at trial N_single is
+    # the break / Part-2 framing. Pacing (the random feedback delay) is also held
+    # constant across the boundary, unlike the paired multi block which is paced
+    # by the partner.
+    if is_solo_session(player.session):
+        g = player.group
+        rt_ms = int(data.get("rt_ms", 0))
+        player.last_rt_ms = rt_ms
+        n_single = num_trials_single(player)
+        block_trial = player.current_trial - n_single + 1
+
+        solo_choice_sync = send_pupil_annotation(
+            "solo_multi_choice",
+            participant_code=player.participant.code,
+            player_id=player.id_in_group,
+            overall_trial=player.current_trial + 1,
+            block="multi",
+            block_trial=block_trial,
+            choice=choice,
+            rt_ms=rt_ms,
+        )
+
+        algo = get_single_algo(player)
+        opponent_choice = algo.sample()
+        algo_state_pre = algo.to_dict()
+
+        is_win = (choice == opponent_choice)
+        reward = C.REWARD_WIN if is_win else C.REWARD_LOSS
+        player.last_reward = reward
+        player.total_points += reward
+
+        algo.update(last_choice=choice, last_reward=1 if is_win else 0)
+        g.algo_state_json = json.dumps(algo.to_dict())
+
+        delay_ms = random.randint(
+            C.SINGLE_FEEDBACK_DELAY_MS_MIN,
+            C.SINGLE_FEEDBACK_DELAY_MS_MAX,
+        )
+
+        g.append_trial(dict(
+            overall_trial=player.current_trial + 1,
+            block="multi",
+            block_trial=block_trial,
+            opponent_type="algo_A",
+            opponent_id="algo_A_v1",
+            solo_control=True,
+            player_code=player.participant.code,
+            player_choice=choice,
+            player_rt_ms=rt_ms,
+            opponent_choice=opponent_choice,
+            reward=reward,
+            total_points_after=player.total_points,
+            server_ts=time.time(),
+            feedback_delay_ms=delay_ms,
+            algo_trials_back=algo_state_pre.get("trials_back"),
+            algo_best_pvalue=algo_state_pre.get("best_pvalue"),
+            algo_best_p_left=algo_state_pre.get("best_p_left"),
+            algo_n_trials_seen=algo_state_pre.get("n_trials_seen"),
+            pupil_solo_multi_choice_sync=solo_choice_sync,
+        ))
+
+        player.current_trial += 1
+
+        return {
+            player.id_in_group: dict(
+                type="feedback",
+                phase="multi",
+                trial=block_trial,
+                trial_total=num_trials_multi(player),
+                reward=reward,
+                total_points=player.total_points,
+                is_last=_overall_done(player),
                 delay_ms=delay_ms,
             )
         }
@@ -570,6 +686,10 @@ class Setup(Page):
         g = player.group
 
         def resolve(mode):
+            # Solo (no-switch control) is defined as algo A across all 800 trials,
+            # so Part 1 must be algo A for the Part 2 memory to be continuous.
+            if is_solo_session(player.session):
+                return "algo_A"
             return random.choice(["algo_A", "algo_B"]) if mode == "random" else mode
 
         g.single_opponent_p1_final = resolve(g.single_opponent_p1)
@@ -589,6 +709,9 @@ class Game(Page):
         return dict(
             num_trials_single=num_trials_single(player),
             num_trials_multi=num_trials_multi(player),
+            # tags every pupil annotation, so the recording's annotations.csv is
+            # self-describing: block=="multi" means algo A, not a human opponent.
+            solo_control=is_solo_session(player.session),
         )
 
 class End(Page):
