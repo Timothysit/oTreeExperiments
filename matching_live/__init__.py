@@ -159,10 +159,6 @@ class Group(BaseGroup):
     # Algorithm state
     algo_state_json = models.LongStringField(initial='{}')
 
-    # One entry per trial holding the sampled cursor trajectory during the
-    # choice window (see live_game "cursor_trace" handler).
-    cursor_log_json = models.LongStringField(initial='[]')
-
     def append_trial(self, row: dict):
         log = json.loads(self.trial_log_json or '[]')
         log.append(row)
@@ -230,7 +226,6 @@ def live_game(player: Player, data):
             g.started = True
             g.trial_log_json = "[]"
             g.algo_state_json = "{}"
-            g.cursor_log_json = "[]"
             g.p1_choice = g.p2_choice = ""
             g.p1_rt_ms = g.p2_rt_ms = 0
 
@@ -299,26 +294,6 @@ def live_game(player: Player, data):
             )
         }
     
-    # ---------------------------------------------------------------------
-    # Cursor trajectory for one choice window (sent once per trial, batched).
-    # ---------------------------------------------------------------------
-    if msg_type == "cursor_trace":
-        g = player.group
-        phase, disp_trial, _ = _phase_and_display_trial(player)
-
-        trace_log = json.loads(g.cursor_log_json or "[]")
-        trace_log.append(dict(
-            player_id=player.id_in_group,
-            participant_code=player.participant.code,
-            overall_trial=player.current_trial + 1,
-            phase=phase,
-            block_trial=disp_trial,
-            samples=data.get("samples", []),
-            server_ts=time.time(),
-        ))
-        g.cursor_log_json = json.dumps(trace_log)
-        return
-
     if msg_type != "choice":
         return
 
