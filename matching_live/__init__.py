@@ -159,10 +159,6 @@ class Group(BaseGroup):
     # Algorithm state
     algo_state_json = models.LongStringField(initial='{}')
 
-    # One entry per trial holding the sampled cursor trajectory during the
-    # choice window (see live_game "cursor_trace" handler).
-    cursor_log_json = models.LongStringField(initial='[]')
-
     def append_trial(self, row: dict):
         log = json.loads(self.trial_log_json or '[]')
         log.append(row)
@@ -188,6 +184,27 @@ class Player(BasePlayer):
     last_reward = models.IntegerField(initial=0)
     last_rt_ms = models.IntegerField(initial=0)
     part1_points = models.IntegerField(initial=0)
+
+
+class CursorTrace(ExtraModel):
+    """One row per trial: the sampled cursor trajectory during that trial's
+    choice window. Stored as an ExtraModel (its own table) rather than a Group
+    field so that:
+      - oTree's create_all() adds the table automatically on deploy (no manual
+        ALTER / resetdb, existing data untouched), and
+      - each trial is a single insert (no growing-JSON re-serialization).
+    `samples_json` is a JSON list of {t_ms, x, y} points (see Game.html).
+    """
+    group = models.Link(Group)
+    player = models.Link(Player)
+    participant_code = models.StringField()
+    id_in_group = models.IntegerField()
+    overall_trial = models.IntegerField()
+    phase = models.StringField()
+    block_trial = models.IntegerField()
+    n_samples = models.IntegerField()
+    samples_json = models.LongStringField()
+    server_ts = models.FloatField()
 
 
 def _phase_and_display_trial(player: Player):
@@ -230,7 +247,6 @@ def live_game(player: Player, data):
             g.started = True
             g.trial_log_json = "[]"
             g.algo_state_json = "{}"
-            g.cursor_log_json = "[]"
             g.p1_choice = g.p2_choice = ""
             g.p1_rt_ms = g.p2_rt_ms = 0
 
@@ -301,22 +317,25 @@ def live_game(player: Player, data):
     
     # ---------------------------------------------------------------------
     # Cursor trajectory for one choice window (sent once per trial, batched).
+    # One ExtraModel row per trial.
     # ---------------------------------------------------------------------
     if msg_type == "cursor_trace":
         g = player.group
         phase, disp_trial, _ = _phase_and_display_trial(player)
+        samples = data.get("samples", []) or []
 
-        trace_log = json.loads(g.cursor_log_json or "[]")
-        trace_log.append(dict(
-            player_id=player.id_in_group,
+        CursorTrace.create(
+            group=g,
+            player=player,
             participant_code=player.participant.code,
+            id_in_group=player.id_in_group,
             overall_trial=player.current_trial + 1,
             phase=phase,
             block_trial=disp_trial,
-            samples=data.get("samples", []),
+            n_samples=len(samples),
+            samples_json=json.dumps(samples),
             server_ts=time.time(),
-        ))
-        g.cursor_log_json = json.dumps(trace_log)
+        )
         return
 
     if msg_type != "choice":
@@ -755,3 +774,47 @@ class End(Page):
         )
 
 page_sequence = [Setup, WaitAfterSetup, Game, End]
+
+
+def custom_export(players):
+    """Flatten cursor trajectories to one CSV row per sample.
+
+    Downloadable from oTree's admin under Data -> the app's custom export.
+    Emits every {t_ms, x, y} sample tagged with participant / trial context, so
+    a single row identifies a point within a specific trial.
+    """
+    yield [
+        "session_code",
+        "participant_code",
+        "id_in_group",
+        "phase",
+        "overall_trial",
+        "block_trial",
+        "n_samples",
+        "server_ts",
+        "sample_index",
+        "t_ms",
+        "x",
+        "y",
+    ]
+    for p in players:
+        for tr in CursorTrace.filter(player=p):
+            try:
+                samples = json.loads(tr.samples_json or "[]")
+            except (TypeError, ValueError):
+                samples = []
+            for i, s in enumerate(samples):
+                yield [
+                    p.session.code,
+                    tr.participant_code,
+                    tr.id_in_group,
+                    tr.phase,
+                    tr.overall_trial,
+                    tr.block_trial,
+                    tr.n_samples,
+                    tr.server_ts,
+                    i,
+                    s.get("t_ms"),
+                    s.get("x"),
+                    s.get("y"),
+                ]
