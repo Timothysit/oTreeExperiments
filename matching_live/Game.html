@@ -333,6 +333,44 @@
   let lastChoiceCursorX = null;
   let lastChoiceCursorY = null;
 
+  /* ---------- Cursor trajectory recording ---------- */
+  // Sampled at a fixed wall-clock rate over the whole choice window.
+  // Keep this modest: 20 Hz is plenty for a fast ballistic reach and keeps
+  // the per-participant data small even with hundreds of trials.
+  const CURSOR_SAMPLE_INTERVAL_MS = 50; // 20 Hz
+  let cursorSamples = [];
+  let cursorSampleInterval = null;
+  let cursorTrialStartMs = null;
+
+  function startCursorRecording() {
+    // Clear any leftover interval defensively so we never double-sample.
+    if (cursorSampleInterval !== null) {
+      clearInterval(cursorSampleInterval);
+      cursorSampleInterval = null;
+    }
+    cursorSamples = [];
+    cursorTrialStartMs = performance.now();
+
+    cursorSampleInterval = setInterval(function () {
+      cursorSamples.push({
+        t_ms: Math.round(performance.now() - cursorTrialStartMs),
+        x: Math.round((vcx / window.innerWidth) * 10000) / 10000,
+        y: Math.round((vcy / window.innerHeight) * 10000) / 10000,
+      });
+    }, CURSOR_SAMPLE_INTERVAL_MS);
+  }
+
+  function stopCursorRecordingAndSend() {
+    if (cursorSampleInterval !== null) {
+      clearInterval(cursorSampleInterval);
+      cursorSampleInterval = null;
+    }
+    if (cursorSamples.length > 0) {
+      liveSend({ type: "cursor_trace", samples: cursorSamples });
+    }
+    cursorSamples = [];
+  }
+
   let breakShown = false;
   let breakActive = false;
   let breakStartTime = null;
@@ -427,6 +465,9 @@
   lastSubmittedChoice = choice;
   lastChoiceCursorX = vcx;
   lastChoiceCursorY = vcy;
+
+  // Close out and ship the trajectory for this trial BEFORE the choice msg.
+  stopCursorRecordingAndSend();
 
   const rt_ms = (choiceStartMs === null) ? null : Math.round(performance.now() - choiceStartMs);
   
@@ -667,6 +708,7 @@
       });
 
       choiceStartMs = performance.now();
+      startCursorRecording();
       waitingForChoice = true;
     }, 2000);
   }
@@ -789,6 +831,12 @@
 
         if (data.is_last) {
           finished = true;
+
+          // Safety: stop sampling if we somehow end mid-window.
+          if (cursorSampleInterval !== null) {
+            clearInterval(cursorSampleInterval);
+            cursorSampleInterval = null;
+          }
 
           if (document.exitPointerLock) {
             document.exitPointerLock();
