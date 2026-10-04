@@ -7,8 +7,8 @@ SESSION_CONFIGS = [
         display_name='Matching Pennies (live)',
         app_sequence=['matching_live'],
         num_demo_participants=2,
-        num_trials_single=100,
-        num_trials_multi=100,
+        num_trials_single=400,
+        num_trials_multi=400,
     ),
     dict(
         name='matching_live_solo',
@@ -135,6 +135,15 @@ ROOMS = [
         participant_label_file='_rooms/econ101.txt',
     ),
     dict(name='live_demo', display_name='Room for live demo (no participant labels)'),
+    # The two testing laptops. Each keeps its own link open between participants:
+    #   <server>/room/mp_lab/?participant_label=laptopA   (laptopB on the other)
+    # A session created in this room (admin page, or lab-notes via POST /api/sessions with
+    # room_name='mp_lab') starts on both at once, and the label records which laptop was used.
+    dict(
+        name='mp_lab',
+        display_name='MP testing room (laptops A and B)',
+        participant_label_file='_rooms/mp_lab.txt',
+    ),
 ]
 
 ADMIN_USERNAME = 'admin'
