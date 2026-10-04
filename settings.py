@@ -5,7 +5,7 @@ SESSION_CONFIGS = [
     dict(
         name='matching_live',
         display_name='Matching Pennies (live)',
-        app_sequence=['matching_live'],
+        app_sequence=['matching_live', 'mp_survey'],
         num_demo_participants=2,
         num_trials_single=100,
         num_trials_multi=100,
@@ -13,7 +13,7 @@ SESSION_CONFIGS = [
     dict(
         name='matching_live_solo',
         display_name='Matching Pennies (solo — no-switch control)',
-        app_sequence=['matching_live'],
+        app_sequence=['matching_live', 'mp_survey'],
         num_demo_participants=1,
         num_trials_single=400,
         num_trials_multi=400,
@@ -105,8 +105,16 @@ SESSION_CONFIGS = [
 # the session config can be accessed from methods in your apps as self.session.config,
 # e.g. self.session.config['participation_fee']
 
+# Set once here; every session uses it (can still be overridden per session).
+PAYMENT_FORM_URL = ""
+
 SESSION_CONFIG_DEFAULTS = dict(
-    real_world_currency_per_point=1.00, participation_fee=0.00, doc=""
+    real_world_currency_per_point=1.00, participation_fee=0.00, doc="",
+    # Payment-only form linked from mp_survey's last page. Kept outside oTree so
+    # the research export never contains names / bank details.
+    # {participant_code} is replaced with the participant's oTree code, so use a
+    # Google Forms pre-filled link with that as the participant-ID answer.
+    payment_form_url=PAYMENT_FORM_URL,
 )
 
 SESSION_CONFIG_CHOICES = dict(

@@ -770,7 +770,6 @@ class End(Page):
             part2_points=part2,
             total_points=player.total_points,
             participant_code=player.participant.code,  # <-- show this on End page
-            survey_url="https://forms.gle/KR7CJY4MENZ5dtX98",  # optional convenience
         )
 
 page_sequence = [Setup, WaitAfterSetup, Game, End]

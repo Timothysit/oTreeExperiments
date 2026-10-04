@@ -27,27 +27,6 @@
     margin-top: 1.8rem;
     text-align: center;
   }
-  .survey a.button {
-    display: inline-block;
-    margin-top: 0.8rem;
-    padding: 0.9rem 1.2rem;
-    border-radius: 12px;
-    text-decoration: none;
-    font-weight: 700;
-    background: #111;
-    color: white;
-  }
-  .iframe-wrap {
-    margin-top: 1.2rem;
-    border-radius: 14px;
-    overflow: hidden;
-    border: 1px solid #ddd;
-  }
-  iframe {
-    width: 100%;
-    height: 780px;
-    border: 0;
-  }
 </style>
 
 <div class="panel">
@@ -64,20 +43,9 @@
 
   <div class="survey">
     <div class="line" style="margin-top: 1.2rem;">
-      Please complete the survey (it should open in a new tab):
+      Next, please answer a short questionnaire about the game.
     </div>
-
-    <!-- Most reliable: link -->
-    <a class="button" href="{{ survey_url }}" target="_blank" rel="noopener noreferrer">
-      Open survey
-    </a>
-
-    <!-- Optional: attempt embed (may be blocked by Google Forms for some links) -->
-    <!--
-    <div class="iframe-wrap">
-      <iframe src="{{ survey_url }}"></iframe>
-    </div>
-    -->
+    {{ next_button }}
   </div>
 </div>
 

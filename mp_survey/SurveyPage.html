@@ -1,0 +1,10 @@
+{{ block title }}{{ heading }}{{ endblock }}
+{{ block content }}
+
+    {{ if intro }}<p>{{ intro }}</p>{{ endif }}
+
+    {{ formfields }}
+
+    {{ next_button }}
+
+{{ endblock }}

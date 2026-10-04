@@ -1,0 +1,25 @@
+{{ block title }}Thank you!{{ endblock }}
+{{ block content }}
+
+    <p>You have finished the questionnaire. Thank you for taking part.</p>
+
+    <p>
+        Your participant ID:
+        <code style="font-size: 1.2rem;">{{ participant_code }}</code>
+    </p>
+
+    {{ if payment_form_url }}
+    <p>
+        To get paid, please fill in the payment form. Your participant ID is filled in for you.
+        It opens in a new tab.
+    </p>
+    <p>
+        <a class="btn btn-primary btn-lg" href="{{ payment_form_url }}" target="_blank" rel="noopener noreferrer">
+            Open payment form
+        </a>
+    </p>
+    {{ else }}
+    <p>Please let the experimenter know you have finished; they will explain how you get paid.</p>
+    {{ endif }}
+
+{{ endblock }}

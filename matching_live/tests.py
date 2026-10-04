@@ -6,6 +6,7 @@ Run with:
 
 Exercises the full live_game loop (both blocks, the block boundary, and the
 End page) for the solo no-switch control and the paired 2-player config.
+The follow-on questionnaire is covered by mp_survey/tests.py.
 """
 from os import environ
 
@@ -34,6 +35,7 @@ class PlayerBot(Bot):
 
         total = TEST_TRIALS_SINGLE + TEST_TRIALS_MULTI
         expect(self.player.current_trial, total)
+        yield End
 
 
 def _choice_for(pid, trial):
