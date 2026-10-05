@@ -2,6 +2,8 @@ from otree.api import *
 import json
 import time
 
+from pupil_bridge.context import pupil_js_vars
+
 
 class C(BaseConstants):
     NAME_IN_URL = "pupil_sync_test"
@@ -44,8 +46,7 @@ class Stimulus(Page):
     def js_vars(player):
         return dict(
             stim_sequence=C.STIM_SEQUENCE,
-            pupil_annotation_url="http://127.0.0.1:8765/annotation",
-            participant_code=player.participant.code,
+            pupil=pupil_js_vars(player, app="pupil_sync_test"),
         )
 
 

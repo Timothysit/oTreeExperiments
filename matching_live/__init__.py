@@ -3,7 +3,7 @@ import random
 import time 
 import json 
 from .algorithms import MatchingPennies2, BlockFlipperWithExtension
-from .pupil_sync import send_pupil_annotation
+from pupil_bridge.context import pupil_js_vars
 
 
 class C(BaseConstants):
@@ -296,14 +296,6 @@ def live_game(player: Player, data):
 
         phase, disp_trial, disp_total = _phase_and_display_trial(player)
 
-        send_pupil_annotation(
-            "task_start",
-            participant_code=player.participant.code,
-            player_id=player.id_in_group,
-            phase=phase,
-            trial=disp_trial,
-        )
-
         return {
             player.id_in_group: dict(
                 type="ready",
@@ -315,25 +307,10 @@ def live_game(player: Player, data):
         }
     
     if msg_type == "single_feedback_shown":
-        sync_info = send_pupil_annotation(
-            "single_feedback_shown",
-            participant_code=player.participant.code,
-            player_id=player.id_in_group,
-            overall_trial=data.get("overall_trial"),
-            block=data.get("block", "single"),
-            block_trial=data.get("block_trial"),
-            choice=data.get("choice"),
-            reward=data.get("reward"),
-            total_points=data.get("total_points"),
-            browser_feedback_ts=data.get("browser_feedback_ts"),
-            server_ts=time.time(),
-        )
-
         player.group.update_last_matching_trial(
             block="single",
             block_trial=data.get("block_trial"),
             updates={
-                "pupil_single_feedback_shown_sync": sync_info,
                 "browser_feedback_ts": data.get("browser_feedback_ts"),
             },
         )
@@ -341,7 +318,6 @@ def live_game(player: Player, data):
         return {
             player.id_in_group: dict(
                 type="feedback_shown_ack",
-                pupil_sync=sync_info,
             )
         }
     
@@ -382,18 +358,6 @@ def live_game(player: Player, data):
         g = player.group
         rt_ms = int(data.get("rt_ms", 0))
         player.last_rt_ms = rt_ms
-
-        # Send pupil annotation 
-        single_choice_sync = send_pupil_annotation(
-            "single_choice",
-            participant_code=player.participant.code,
-            player_id=player.id_in_group,
-            overall_trial=player.current_trial + 1,
-            block="single",
-            block_trial=player.current_trial + 1,
-            choice=choice,
-            rt_ms=rt_ms,
-        )
 
         # Decide opponent type for this block (algo_A/algo_B)
         opponent_type, opponent_id = get_single_opponent_for_player(player)
@@ -468,7 +432,6 @@ def live_game(player: Player, data):
             total_points_after=player.total_points,
             server_ts=time.time(),
             feedback_delay_ms=delay_ms,
-            pupil_single_choice_sync=single_choice_sync,
         )
 
         if opponent_type == "algo_A":
@@ -498,14 +461,6 @@ def live_game(player: Player, data):
         if player.current_trial == num_trials_single(player):
             player.part1_points = player.total_points
 
-            send_pupil_annotation(
-                    "single_block_end",
-                    participant_code=player.participant.code,
-                    player_id=player.id_in_group,
-                    total_points=player.total_points,
-                    num_trials_single=num_trials_single(player),
-            )
-
         is_last = _overall_done(player)
         
 
@@ -534,17 +489,6 @@ def live_game(player: Player, data):
         player.last_rt_ms = rt_ms
         n_single = num_trials_single(player)
         block_trial = player.current_trial - n_single + 1
-
-        solo_choice_sync = send_pupil_annotation(
-            "solo_multi_choice",
-            participant_code=player.participant.code,
-            player_id=player.id_in_group,
-            overall_trial=player.current_trial + 1,
-            block="multi",
-            block_trial=block_trial,
-            choice=choice,
-            rt_ms=rt_ms,
-        )
 
         algo = get_single_algo(player)
         opponent_choice = algo.sample()
@@ -582,7 +526,6 @@ def live_game(player: Player, data):
             algo_best_pvalue=algo_state_pre.get("best_pvalue"),
             algo_best_p_left=algo_state_pre.get("best_p_left"),
             algo_n_trials_seen=algo_state_pre.get("n_trials_seen"),
-            pupil_solo_multi_choice_sync=solo_choice_sync,
         ))
 
         player.current_trial += 1
@@ -611,17 +554,6 @@ def live_game(player: Player, data):
     else:
         g.p2_choice = choice
         g.p2_rt_ms = rt_ms
-
-    send_pupil_annotation(
-        "multi_choice_submitted",
-        participant_code=player.participant.code,
-        player_id=player.id_in_group,
-        overall_trial=player.current_trial + 1,
-        block="multi",
-        block_trial=(player.current_trial - num_trials_single(player)) + 1,
-        choice=choice,
-        rt_ms=rt_ms,
-    )
 
     other = player.get_others_in_group()[0]
 
@@ -658,22 +590,6 @@ def live_game(player: Player, data):
     # current multiplayer trial number (before increment)
     current_multi_trial = (p1.current_trial - num_trials_single(player)) + 1
 
-    pupil_sync = send_pupil_annotation(
-        "multi_trial_outcome",
-        overall_trial=p1.current_trial + 1,
-        block="multi",
-        block_trial=current_multi_trial,
-        p1_code=p1.participant.code,
-        p2_code=p2.participant.code,
-        p1_choice=c1,
-        p2_choice=c2,
-        p1_rt_ms=rt1,
-        p2_rt_ms=rt2,
-        p1_reward=r1,
-        p2_reward=r2,
-        winner=winner,
-    )
-
     # Log a single combined row for this multiplayer trial
     row = dict(
         overall_trial=p1.current_trial + 1,  # both players share the same overall trial index
@@ -692,7 +608,6 @@ def live_game(player: Player, data):
         p1_total_points_after=p1.total_points,
         p2_total_points_after=p2.total_points,
         server_ts=time.time(),
-        pupil_multi_outcome_sync=pupil_sync,
     )
     g.append_trial(row)
 
@@ -786,7 +701,6 @@ def _part2_ready(player):
         return {player.id_in_group: dict(type="part2_wait")}
     for p in targets:
         p.participant.vars["part2_started"] = True
-    send_pupil_annotation("part2_go", player_id=player.id_in_group)
     return {p.id_in_group: dict(type="part2_go", trial=1, trial_total=num_trials_multi(p)) for p in targets}
 
 
@@ -844,9 +758,13 @@ class Game(Page):
         return dict(
             num_trials_single=num_trials_single(player),
             num_trials_multi=num_trials_multi(player),
-            # tags every pupil annotation, so the recording's annotations.csv is
-            # self-describing: block=="multi" means algo A, not a human opponent.
-            solo_control=is_solo_session(player.session),
+            # solo_control tags every pupil annotation, so the recording's annotations.csv
+            # is self-describing: block=="multi" means algo A, not a human opponent.
+            pupil=pupil_js_vars(
+                player,
+                app="matching_live",
+                solo_control=1 if is_solo_session(player.session) else 0,
+            ),
         )
 
 class End(Page):

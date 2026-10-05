@@ -3,7 +3,7 @@ import random
 import time
 import json
 
-from .pupil_sync import send_pupil_annotation
+from pupil_bridge.context import pupil_js_vars
 
 
 class C(BaseConstants):
@@ -302,24 +302,6 @@ def _single_choice(player: Player, data, choice: str, rt_ms: int):
     player.last_reward = reward
     player.total_points += reward
 
-    pupil_sync = send_pupil_annotation(
-        "single_calibration_outcome" if calibration else "single_trial_outcome",
-        participant_code=player.participant.code,
-        player_id=player.id_in_group,
-        overall_trial=current_trial,
-        block="calibration" if calibration else "single",
-        block_trial=block_trial,
-        instructed_choice=instructed_choice,
-        player_choice=choice,
-        opponent_choice=opponent_choice,
-        rt_ms=rt_ms,
-        movement_rt_ms=movement_rt_ms,
-        top_speed_px_s=top_speed_px_s,
-        reward=reward,
-        outcome_reason=outcome_reason,
-        timer_ms=player.trial_timer_ms,
-    )
-
     g.append_trial(
         dict(
             overall_trial=current_trial,
@@ -350,7 +332,6 @@ def _single_choice(player: Player, data, choice: str, rt_ms: int):
             outcome_reason=outcome_reason,
             total_points_after=player.total_points,
             server_ts=time.time(),
-            pupil_single_outcome_sync=pupil_sync,
         )
     )
 
@@ -367,6 +348,7 @@ def _single_choice(player: Player, data, choice: str, rt_ms: int):
             type="feedback",
             phase="single",
             block="calibration" if calibration else "single",
+            overall_trial=current_trial,
             trial=block_trial,
             trial_total=block_total,
             your_choice=choice,
@@ -477,16 +459,6 @@ def live_game(player: Player, data):
         else:
             g.p2_started = True
 
-        phase = "single" if is_single_player_mode(player) else "multi"
-
-        send_pupil_annotation(
-            "task_start",
-            participant_code=player.participant.code,
-            player_id=player.id_in_group,
-            phase=phase,
-            trial=player.current_trial + 1,
-        )
-
         if is_single_player_mode(player):
             return {player.id_in_group: _ready_payload(player)}
 
@@ -531,18 +503,6 @@ def live_game(player: Player, data):
     else:
         g.p2_choice = choice
         g.p2_rt_ms = rt_ms
-
-    send_pupil_annotation(
-        "multi_deadline_choice",
-        participant_code=player.participant.code,
-        player_id=player.id_in_group,
-        overall_trial=player.current_trial + 1,
-        block="multi",
-        block_trial=player.current_trial + 1,
-        choice=choice,
-        rt_ms=rt_ms,
-        timer_ms=g.trial_timer_ms,
-    )
 
     # If the other player has not reported their deadline choice yet, wait.
     if not g.p1_choice or not g.p2_choice:
@@ -598,24 +558,6 @@ def live_game(player: Player, data):
 
     current_trial = p1.current_trial + 1
 
-    pupil_sync = send_pupil_annotation(
-        "multi_trial_outcome",
-        overall_trial=current_trial,
-        block="multi",
-        block_trial=current_trial,
-        p1_code=p1.participant.code,
-        p2_code=p2.participant.code,
-        p1_choice=c1,
-        p2_choice=c2,
-        p1_rt_ms=rt1,
-        p2_rt_ms=rt2,
-        p1_reward=r1,
-        p2_reward=r2,
-        winner=winner,
-        outcome_reason=outcome_reason,
-        timer_ms=g.trial_timer_ms,
-    )
-
     g.append_trial(
         dict(
             overall_trial=current_trial,
@@ -638,7 +580,6 @@ def live_game(player: Player, data):
             p1_total_points_after=p1.total_points,
             p2_total_points_after=p2.total_points,
             server_ts=time.time(),
-            pupil_multi_outcome_sync=pupil_sync,
         )
     )
 
@@ -767,6 +708,7 @@ class Game(Page):
             follow_speed_pct=player.group.follow_speed_pct,
             anticipate_warmup_trials=player.group.anticipate_warmup_trials,
             player_id=player.id_in_group,
+            pupil=pupil_js_vars(player, app="matching_retreat_1"),
         )
 
 

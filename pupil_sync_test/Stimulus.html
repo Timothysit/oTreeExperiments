@@ -46,39 +46,26 @@ Pupil sync test
 
 <div id="status"></div>
 
+<script src="{{ static 'pupil_bridge.js' }}"></script>
 <script>
   const stimScreen = document.getElementById("stim-screen");
   const startButton = document.getElementById("start-button");
   const statusText = document.getElementById("status");
 
   const stimSequence = js_vars.stim_sequence;
-  const pupilAnnotationUrl = js_vars.pupil_annotation_url;
 
   let syncLog = [];
 
-  async function sendPupilAnnotation(label, fields = {}) {
-    try {
-    await fetch(js_vars.pupil_annotation_url, {
-        method: "POST",
-        headers: {
-        "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-        label: label,
-        browser_ts: performance.now(),
-        participant_code: js_vars.participant_code,
-        ...fields,
-        }),
-    });
-    return true;
-    } catch (err) {
-    console.log("Pupil bridge unavailable", err);
-    return false;
-    }
-  }
+  PupilBridge.init(js_vars.pupil);
+  const sendPupilAnnotation = PupilBridge.annotate;
 
   function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  // performance.now() time of the frame that draws the change just made
+  function nextFrameTime() {
+    return new Promise(resolve => requestAnimationFrame(resolve));
   }
 
   async function runStimulusSequence() {
@@ -93,10 +80,10 @@ Pupil sync test
     for (let i = 0; i < stimSequence.length; i++) {
       const stim = stimSequence[i];
 
-      const onsetBrowserTs = performance.now();
-      const elapsedFromStartMs = onsetBrowserTs - experimentStartBrowserTs;
-
       stimScreen.style.background = stim.color;
+
+      const onsetBrowserTs = await nextFrameTime();
+      const elapsedFromStartMs = onsetBrowserTs - experimentStartBrowserTs;
 
       const label = `stim_${i + 1}_${stim.color}`;
 
@@ -106,7 +93,7 @@ Pupil sync test
         duration_ms: stim.duration_ms,
         onset_browser_ts: onsetBrowserTs,
         elapsed_from_start_ms: elapsedFromStartMs,
-    });
+    }, onsetBrowserTs);
 
     syncLog.push({
         stim_index: i + 1,

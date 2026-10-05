@@ -279,6 +279,7 @@
   </div>
 </div>
 
+<script src="{{ static 'pupil_bridge.js' }}"></script>
 <script>
   const introOverlay = document.getElementById("intro-overlay");
   const breakOverlay = document.getElementById("break-overlay");
@@ -303,28 +304,26 @@
 
   const NUM_TRIALS_SINGLE = js_vars.num_trials_single;
 
-  // =========================
-  // Pupil bridge helper
-  // =========================
+  // Pupil annotations go to the bridge on this laptop (_static/pupil_bridge.js)
+  PupilBridge.init(js_vars.pupil);
+  const sendPupilAnnotation = PupilBridge.annotate;
 
-  async function sendPupilAnnotation(label, fields = {}) {
-    try {
-      await fetch("http://127.0.0.1:8765/annotation", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          label: label,
-          browser_ts: performance.now(),
-          // in a solo control session block=="multi" is still algo A, not a human
-          solo_control: js_vars.solo_control ? 1 : 0,
-          ...fields,
-        }),
-      });
-    } catch (err) {
-      console.log("Pupil bridge unavailable", err);
-    }
+  // Part 2 trials are numbered from 1 within the block but continue Part 1's count overall
+  function overallTrial(phase, blockTrial) {
+    return phase === "multi" ? NUM_TRIALS_SINGLE + blockTrial : blockTrial;
+  }
+
+  // The trial being played, for annotations. Tracked from the server's messages
+  // because the on-screen counter still shows the previous trial until its feedback.
+  let annotBlock = "single";
+  let annotBlockTrial = 1;
+
+  function trialFields() {
+    return {
+      block: annotBlock,
+      block_trial: annotBlockTrial,
+      overall_trial: overallTrial(annotBlock, annotBlockTrial),
+    };
   }
 
 
@@ -476,6 +475,7 @@
   
   
   sendPupilAnnotation("choice_submitted", {
+    ...trialFields(),
     choice: choice,
     rt_ms: rt_ms,
     cursor_x: lastChoiceCursorX,
@@ -706,8 +706,9 @@
 
       // Trial now starting, send to pupil annotation
       sendPupilAnnotation("trial_start", {
+        ...trialFields(),
         displayed_trial: trialNumberSpan.textContent,
-        phase: part1TotalPoints === null ? "single" : "multi",
+        phase: annotBlock,
       });
 
       choiceStartMs = performance.now();
@@ -782,6 +783,8 @@
   /* ---------- Server messages ---------- */
   function liveRecv(data) {
     if (data.type === "ready") {
+      annotBlock = data.phase;
+      annotBlockTrial = data.trial;
       trialNumberSpan.textContent = data.trial;
       updatePointsUI(data.phase, data.total_points);
 
@@ -798,6 +801,8 @@
       showPart2Wait();
 
     } else if (data.type === "part2_go") {
+      annotBlock = "multi";
+      annotBlockTrial = data.trial;
       sendPupilAnnotation("part2_go", {});
       trialNumberSpan.textContent = data.trial;
       startPart2();
@@ -810,6 +815,9 @@
       fadeGameArea();
 
     } else if (data.type === "feedback") {
+      // the next choice belongs to the following trial
+      annotBlock = data.phase;
+      annotBlockTrial = data.trial + 1;
       trialNumberSpan.textContent = data.trial;
       updatePointsUI(data.phase, data.total_points);
 
@@ -831,12 +839,15 @@
 
         // feedback is now visible on screen
         sendPupilAnnotation("feedback_shown", {
-          overall_trial: data.trial,
+          overall_trial: overallTrial(data.phase, data.trial),
           block: data.phase,
           block_trial: data.trial,
           reward: data.reward,
           total_points: data.total_points,
           choice: lastSubmittedChoice,
+          // paired Part 2 only
+          other_choice: data.other_choice,
+          winner: data.winner,
         });
 
         if (data.phase === "single" && data.trial === NUM_TRIALS_SINGLE && !breakShown) {
