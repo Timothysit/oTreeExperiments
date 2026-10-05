@@ -746,6 +746,64 @@ class WaitForPair(WaitPage):
     group_by_arrival_time = True
 
 
+# ---------------------------------------------------------------------------
+# Progress for lab-notes (read with POST /api/get_session/<code>, participant_vars=["progress"])
+# and a synchronised start of Part 2. Both live in participant.vars, so no new DB columns.
+# ---------------------------------------------------------------------------
+
+def set_progress(player, stage, **fields):
+    player.participant.vars["progress"] = dict(stage=stage, t=round(time.time()), **fields)
+
+
+def _game_progress(player):
+    n_single, n_multi = num_trials_single(player), num_trials_multi(player)
+    done = player.current_trial
+    pv = player.participant.vars
+    if done < n_single:
+        return dict(stage="part1", trial=done, of=n_single, points=player.total_points)
+    if done == n_single and not pv.get("part2_started"):
+        return dict(stage="break", trial=0, of=n_multi, points=player.total_points)
+    if done >= n_single + n_multi:
+        return dict(stage="game_done", trial=n_multi, of=n_multi, points=player.total_points)
+    return dict(stage="part2", trial=done - n_single, of=n_multi, points=player.total_points)
+
+
+def _at_part2_start(player):
+    return player.current_trial == num_trials_single(player) and num_trials_multi(player) > 0
+
+
+def _part2_ready(player):
+    """This player clicked through the break (or reloaded the page there). Part 2 starts for
+    everyone in the group at once, when the last of them is ready; they're only told to wait."""
+    group = player.group.get_players()
+    already_going = all(p.participant.vars.get("part2_ready") for p in group)
+    player.participant.vars["part2_ready"] = True
+    if already_going:  # a reload after Part 2 started: just this player rejoins
+        targets = [player]
+    elif all(p.participant.vars.get("part2_ready") for p in group):
+        targets = group
+    else:
+        return {player.id_in_group: dict(type="part2_wait")}
+    for p in targets:
+        p.participant.vars["part2_started"] = True
+    send_pupil_annotation("part2_go", player_id=player.id_in_group)
+    return {p.id_in_group: dict(type="part2_go", trial=1, trial_total=num_trials_multi(p)) for p in targets}
+
+
+def live_game_with_progress(player: Player, data):
+    msg_type = data.get("type")
+    if msg_type == "part2_ready" and _at_part2_start(player):
+        reply = _part2_ready(player)
+    else:
+        reply = live_game(player, data)
+        # a page reload at the break comes back as "start": wait for Part 2 like a click would
+        if msg_type == "start" and _at_part2_start(player) and player.group.started:
+            reply = _part2_ready(player)
+    for p in player.group.get_players():
+        set_progress(p, **_game_progress(p))
+    return reply
+
+
 class Setup(Page):
     form_model = "group"
     form_fields = ["single_opponent_p1", "single_opponent_p2", "num_trials_single", "num_trials_multi"]
@@ -778,10 +836,11 @@ class WaitAfterSetup(WaitPage):
 
 class Game(Page):
     # This tells oTree to use the live_game function for WebSocket messages
-    live_method = live_game
+    live_method = live_game_with_progress
 
     @staticmethod
     def js_vars(player: Player):
+        set_progress(player, **_game_progress(player))  # the page (re)loaded
         return dict(
             num_trials_single=num_trials_single(player),
             num_trials_multi=num_trials_multi(player),
@@ -803,6 +862,11 @@ class End(Page):
             total_points=player.total_points,
             participant_code=player.participant.code,  # <-- show this on End page
         )
+
+    @staticmethod
+    def before_next_page(player: Player, timeout_happened):
+        survey = "mp_survey" in player.session.config["app_sequence"] and not player.session.config.get("skip_survey")
+        set_progress(player, "survey" if survey else "finished", points=player.total_points)
 
 page_sequence = [Setup, WaitAfterSetup, Game, End]
 

@@ -200,17 +200,20 @@
             background-color:rgba(255,255,255,0.95);
             cursor:pointer; z-index:10;">
   <div style="max-width:600px; text-align:center;">
-    <p style="font-size:1.6rem; font-weight:bold;">
-      Part 1 of the game is now finished
-    </p>
+    <div id="break-message">
+      <p style="font-size:1.6rem; font-weight:bold;">
+        Part 1 of the game is now finished
+      </p>
 
-    <p style="margin-top:1.2rem;">
-      You may now take a <strong>5 minute break</strong>.
-    </p>
+      <p style="margin-top:1.2rem;">
+        You may now take a <strong>5 minute break</strong>.
+      </p>
 
-    <p style="margin-top:1.2rem;">
-      Click anywhere when you are ready to start Part 2.
-    </p>
+      <p style="margin-top:1.2rem;">
+        Click anywhere when you are ready to start Part 2.
+      </p>
+    </div>
+    <p id="break-wait" style="display:none; font-size:1.6rem;">Please wait...</p>
   </div>
 </div>
 
@@ -724,10 +727,26 @@
   });
 
   /* ---------- Break ---------- */
-  breakOverlay.addEventListener("click", function () {
+  // Part 2 starts for everyone at the same moment: the click only says this participant is
+  // ready; the server answers "part2_go" (to all) once the last one is ready, "part2_wait" before.
+  const breakMessage = document.getElementById("break-message");
+  const breakWait = document.getElementById("break-wait");
+  let part2Requested = false;
+
+  function showPart2Wait() {
+    gameArea.style.display = "none";
+    breakMessage.style.display = "none";
+    breakWait.style.display = "block";
+    breakOverlay.style.cursor = "default";
+    breakOverlay.style.display = "flex";
+  }
+
+  function startPart2() {
     breakOverlay.style.display = "none";
+    breakWait.style.display = "none";
     gameArea.style.display = "block";
     breakActive = false;
+    breakShown = true;
 
     resetVirtualCursorToCenter();
     requestPointerLock();
@@ -735,6 +754,13 @@
     unfadeGameArea();
     statusText.textContent = "Wait...";
     startChoicePhase();
+  }
+
+  breakOverlay.addEventListener("click", function () {
+    if (part2Requested) return;
+    part2Requested = true;
+    showPart2Wait();
+    liveSend({ type: "part2_ready" });
   });
 
   /* ---------- Optional keyboard fallback ---------- */
@@ -764,6 +790,17 @@
         : "Two-player block: wait...";
 
       startChoicePhase();
+
+    } else if (data.type === "part2_wait") {
+      // also sent after a page reload at the break
+      part2Requested = true;
+      if (part1TotalPoints === null && data.total_points != null) part1TotalPoints = data.total_points;
+      showPart2Wait();
+
+    } else if (data.type === "part2_go") {
+      sendPupilAnnotation("part2_go", {});
+      trialNumberSpan.textContent = data.trial;
+      startPart2();
 
     } else if (data.type === "wait_opponent") {
       trialNumberSpan.textContent = data.trial;

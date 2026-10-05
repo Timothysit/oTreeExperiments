@@ -1,3 +1,5 @@
+import time
+
 from otree.api import *
 
 
@@ -286,6 +288,10 @@ class Payment(Page):
 
     @staticmethod
     def vars_for_template(player):
+        # progress for lab-notes (same record matching_live keeps up to date)
+        player.participant.vars["progress"] = dict(
+            player.participant.vars.get("progress") or {}, stage="finished", t=round(time.time())
+        )
         return dict(
             participant_code=player.participant.code,
             payment_form_url=payment_form_url(player),
