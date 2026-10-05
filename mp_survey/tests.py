@@ -10,6 +10,8 @@ from . import *
 
 class PlayerBot(Bot):
     def play_round(self):
+        if survey_skipped(self.player):  # test run: no survey pages at all
+            return
         yield AboutTheGame, dict(
             interface_ease='Very easy',
             instructions_clear='Very clear',

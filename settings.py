@@ -25,15 +25,17 @@ SESSION_CONFIGS = [
     ),
     dict(
         # bot test only (otree test matching_live_preset_test): opponents per laptop label set
-        # when the session is created, as lab-notes does, so the Setup page is skipped
+        # when the session is created, as lab-notes does, so the Setup page is skipped; and a
+        # test run's skip_survey
         name='matching_live_preset_test',
-        display_name='(test) Matching Pennies, opponents set at creation',
-        app_sequence=['matching_live'],
+        display_name='(test) Matching Pennies, opponents set at creation, no survey',
+        app_sequence=['matching_live', 'mp_survey'],
         num_demo_participants=2,
         num_trials_single=30,
         num_trials_multi=30,
         opponent_laptopA='algo_A',
         opponent_laptopB='algo_B',
+        skip_survey=True,
     ),
     dict(
         name='guess_two_thirds',
