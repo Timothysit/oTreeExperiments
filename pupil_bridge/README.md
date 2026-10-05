@@ -112,3 +112,40 @@ Each annotation is also appended to `pupil_bridge/logs/annotations_<start time>.
 with `pupil=pupil_js_vars(player, app="...")` (from `pupil_bridge.context`)
 in the page's `js_vars`. Used in `matching_live`, `matching_retreat_1` and
 `pupil_sync_test`.
+
+## Validation (2026-10-05)
+
+Pupil sync test run locally on the headset laptop with the new bridge, with
+the headset turned to face the screen so the world camera filmed the
+black/white changes (recording `recordings\2026_10_05\000`).
+
+- All 8 annotations arrived, all with `timestamp_source = page`, delivered
+  2–8 ms after the event, with the participant/session fields.
+- World video (31 fps, so a resolution of about 32 ms): stimuli 1–2 are
+  unusable (headset still being moved). For stimuli 3–6 the last unchanged
+  frame is 43–54 ms and the first changed frame 8–18 ms *before* the
+  annotation timestamp, the same frame slot every time. Two of those first
+  frames are only partly changed, i.e. caught mid-change.
+
+| stimulus | last unchanged frame | first changed frame |
+|---|---|---|
+| 3 (black) | −45 ms | −13 ms (partly changed) |
+| 4 (white) | −43 ms | −11 ms |
+| 5 (black) | −54 ms | −18 ms (partly changed) |
+| 6 (white) | −43 ms | −8 ms |
+
+Conclusions:
+
+- **Jitter** between annotations and the world video is below one camera
+  frame (32 ms), the resolution of this test.
+- **Offset:** onsets are stamped at the browser frame that draws the change,
+  so the screen cannot change before the annotation time. The world camera
+  showing it 10–45 ms earlier therefore suggests the world video's timestamps
+  run late by at least that much (e.g. stamped on frame arrival rather than
+  exposure). Not confirmed; a photodiode on the screen would measure absolute
+  timing. For pupil-size analysis this is negligible next to the pupil light
+  response latency (> 200 ms); it matters when aligning events to world video.
+- The eye cameras faced the screen, so this run has no pupil data.
+- In `pupil_sync_test`, each stimulus lasts 6–21 ms longer than its
+  `duration_ms`, because the page waits for the annotation request before
+  starting the timer. Onset timestamps are unaffected.
