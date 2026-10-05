@@ -30,6 +30,30 @@ def is_solo_session(session) -> bool:
     return bool(session.config.get("solo", False))
 
 
+# Part 1 opponents can be set per laptop when the session is created (lab-notes passes
+# opponent_laptopA / opponent_laptopB, keyed by the mp_lab room's participant labels).
+# Then the Setup page is skipped. Players are numbered in the order their laptops join,
+# so the opponents are matched to players by label once both have arrived.
+OPPONENT_MODES = ("random", "algo_A", "algo_B")  # algo_A: matching pennies; algo_B: two-armed bandit
+
+
+def opponents_preset(session) -> bool:
+    return any(k.startswith("opponent_") for k in session.config)
+
+
+def resolve_opponent(session, mode):
+    # Solo (no-switch control) is defined as algo A across all 800 trials,
+    # so Part 1 must be algo A for the Part 2 memory to be continuous.
+    if is_solo_session(session):
+        return "algo_A"
+    return random.choice(["algo_A", "algo_B"]) if mode == "random" else mode
+
+
+def preset_opponent_mode(player):
+    mode = player.session.config.get(f"opponent_{player.participant.label}", "random")
+    return mode if mode in OPPONENT_MODES else "random"
+
+
 class Subsession(BaseSubsession):
     pass
 
@@ -52,6 +76,12 @@ def creating_session(subsession: Subsession):
     subsession.set_group_matrix(
         [players[i:i + size] for i in range(0, len(players), size)]
     )
+    # trial counts from the session config (lab-notes sets them per session); the Setup
+    # page, when shown, starts from these and can still change them
+    cfg = subsession.session.config
+    for g in subsession.get_groups():
+        g.num_trials_single = int(cfg.get("num_trials_single", C.NUM_TRIALS_SINGLE))
+        g.num_trials_multi = int(cfg.get("num_trials_multi", C.NUM_TRIALS_MULTI))
 
 
 def num_trials_single(player):
@@ -123,13 +153,13 @@ class Group(BaseGroup):
 
 
     single_opponent_p1 = models.StringField(
-        choices=[["random", "Random"], ["algo_A", "Algorithm A"], ["algo_B", "Algorithm B"]],
+        choices=[["random", "Random (A or B)"], ["algo_A", "Algorithm A (matching pennies)"], ["algo_B", "Algorithm B (two-armed bandit)"]],
         initial="random",
         blank=False,
         widget=widgets.RadioSelect,
     )
     single_opponent_p2 = models.StringField(
-        choices=[["random", "Random"], ["algo_A", "Algorithm A"], ["algo_B", "Algorithm B"]],
+        choices=[["random", "Random (A or B)"], ["algo_A", "Algorithm A (matching pennies)"], ["algo_B", "Algorithm B (two-armed bandit)"]],
         initial="random",
         blank=False,
         widget=widgets.RadioSelect,
@@ -722,27 +752,29 @@ class Setup(Page):
 
     @staticmethod
     def is_displayed(player):
-        # only show to player 1 (once per group)
-        return player.id_in_group == 1
+        # only show to player 1 (once per group), and only when the session didn't set it
+        return player.id_in_group == 1 and not opponents_preset(player.session)
 
     @staticmethod
     def before_next_page(player, timeout_happened):
         g = player.group
-
-        def resolve(mode):
-            # Solo (no-switch control) is defined as algo A across all 800 trials,
-            # so Part 1 must be algo A for the Part 2 memory to be continuous.
-            if is_solo_session(player.session):
-                return "algo_A"
-            return random.choice(["algo_A", "algo_B"]) if mode == "random" else mode
-
-        g.single_opponent_p1_final = resolve(g.single_opponent_p1)
-        g.single_opponent_p2_final = resolve(g.single_opponent_p2)
+        g.single_opponent_p1_final = resolve_opponent(player.session, g.single_opponent_p1)
+        g.single_opponent_p2_final = resolve_opponent(player.session, g.single_opponent_p2)
 
 class WaitAfterSetup(WaitPage):
     @staticmethod
     def is_displayed(player):
         return True
+
+    @staticmethod
+    def after_all_players_arrive(group: Group):
+        # everyone in the group has joined, so each player's laptop label is known
+        if not opponents_preset(group.session):
+            return
+        for p in group.get_players():
+            mode = preset_opponent_mode(p)
+            setattr(group, f"single_opponent_p{p.id_in_group}", mode)
+            setattr(group, f"single_opponent_p{p.id_in_group}_final", resolve_opponent(group.session, mode))
 
 class Game(Page):
     # This tells oTree to use the live_game function for WebSocket messages

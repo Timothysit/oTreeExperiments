@@ -3,6 +3,7 @@
 Run with:
     uv run otree test matching_live_solo
     uv run otree test matching_live
+    uv run otree test matching_live_preset_test   (opponents set at creation, as lab-notes does)
 
 Exercises the full live_game loop (both blocks, the block boundary, and the
 End page) for the solo no-switch control and the paired 2-player config.
@@ -23,7 +24,11 @@ TEST_TRIALS_MULTI = _n
 
 class PlayerBot(Bot):
     def play_round(self):
-        if self.player.id_in_group == 1:
+        if opponents_preset(self.session):
+            # no Setup page; bots have no room labels, so both fall back to "random"
+            expect(self.group.single_opponent_p1_final in ("algo_A", "algo_B"), True)
+            expect(self.group.num_trials_single, self.session.config["num_trials_single"])
+        elif self.player.id_in_group == 1:
             yield Setup, dict(
                 single_opponent_p1="algo_A",
                 single_opponent_p2="algo_A",
