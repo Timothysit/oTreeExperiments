@@ -49,6 +49,7 @@ class PupilConnection:
         self.pub = None
         self.pub_port = None
         self.last_error = None
+        self.warned = False  # warned that Pupil Capture is unreachable, since the last success
 
     def _close(self):
         for sock in (self.remote, self.pub):
@@ -88,12 +89,18 @@ class PupilConnection:
                     self._connect()
                 result = fn()
                 self.last_error = None
+                self.warned = False
                 return result
             except zmq.ZMQError as e:
                 # a timed-out REQ socket can't be reused, so start over next time
                 self._close()
-                self.last_error = f"{type(e).__name__}: {e}"
-                raise PupilUnavailable(self.last_error) from e
+                self.last_error = f"Pupil Capture not reachable at {self.host}:{self.port} ({e})"
+                if not self.warned:
+                    self.warned = True
+                    print(f"WARNING: Pupil Capture is not running, or Pupil Remote is not on "
+                          f"port {self.port}. Annotations are not being recorded. The bridge "
+                          f"keeps trying and connects as soon as Pupil Capture is up.", flush=True)
+                raise PupilUnavailable("Pupil Capture not reachable") from e
 
     def time(self):
         return self._run(lambda: float(self._request(b"t")))
@@ -224,8 +231,8 @@ def main(argv=None):
     pupil = PupilConnection(args.pupil_host, args.pupil_port)
     try:
         pupil.time()
-    except PupilUnavailable as e:
-        print(f"Pupil Capture not reachable yet ({e}); will retry on each request.", flush=True)
+    except PupilUnavailable:
+        pass  # already warned; it connects on a later request
 
     app = create_app(pupil)
     logging.getLogger("werkzeug").setLevel(logging.WARNING)  # one line per annotation is enough
