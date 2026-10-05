@@ -1,6 +1,9 @@
 # Pupil bridge
 
 Sends Pupil Capture annotations from the oTree pages to the headset laptop.
+
+> Recordings made before this branch (May–July 2026) have known timing and
+> trial-numbering issues, see [RECORDINGS_2026-05_TO_07.md](RECORDINGS_2026-05_TO_07.md).
 The oTree pages are served from Heroku, so the oTree server can't reach Pupil
 Capture; the browser on the headset laptop can, through this small local server.
 
