@@ -3,6 +3,7 @@
 Run with:
     uv run otree test matching_live_solo
     uv run otree test matching_live
+    uv run otree test matching_live_preset_test   (opponents set at creation, as lab-notes does)
 
 Exercises the full live_game loop (both blocks, the block boundary, and the
 End page) for the solo no-switch control and the paired 2-player config.
@@ -23,7 +24,11 @@ TEST_TRIALS_MULTI = _n
 
 class PlayerBot(Bot):
     def play_round(self):
-        if self.player.id_in_group == 1:
+        if opponents_preset(self.session):
+            # no Setup page; bots have no room labels, so both fall back to "random"
+            expect(self.group.single_opponent_p1_final in ("algo_A", "algo_B"), True)
+            expect(self.group.num_trials_single, self.session.config["num_trials_single"])
+        elif self.player.id_in_group == 1:
             yield Setup, dict(
                 single_opponent_p1="algo_A",
                 single_opponent_p2="algo_A",
@@ -56,11 +61,26 @@ def call_live_method(method, group, page_class, **kwargs):
         method(p.id_in_group, {"type": "start"})
 
     for trial in range(n_single + n_multi):
+        if trial == n_single:
+            # break: each click only says "ready"; Part 2 starts for everyone with the last one
+            for p in players:
+                expect(p.participant.vars["progress"]["stage"], "break")
+            replies = [method(p.id_in_group, {"type": "part2_ready"}) for p in players]
+            for r in replies[:-1]:
+                expect(r, {r_id: dict(type="part2_wait") for r_id in r})
+            expect(sorted(replies[-1]), [p.id_in_group for p in players])
+            expect({v["type"] for v in replies[-1].values()}, {"part2_go"})
         for p in players:
             method(
                 p.id_in_group,
                 {"type": "choice", "choice": _choice_for(p.id_in_group, trial), "rt_ms": 400},
             )
+        if trial == 0:
+            expect(players[0].participant.vars["progress"]["stage"], "part1")
+
+    for p in players:
+        prog = p.participant.vars["progress"]
+        expect((prog["stage"], prog["trial"], prog["of"]), ("game_done", n_multi, n_multi))
 
     log = json.loads(group.trial_log_json)
     expect(len(log), (n_single + n_multi) if solo else (n_single * len(players) + n_multi))

@@ -1,3 +1,5 @@
+import time
+
 from otree.api import *
 
 
@@ -184,10 +186,19 @@ class Player(BasePlayer):
     )
 
 
+def survey_skipped(player):
+    """Test runs can skip the questionnaire: session config skip_survey (lab-notes sets it)."""
+    return bool(player.session.config.get('skip_survey', False))
+
+
 # PAGES
 class SurveyPage(Page):
     form_model = 'player'
     template_name = 'mp_survey/SurveyPage.html'
+
+    @staticmethod
+    def is_displayed(player):
+        return not survey_skipped(player)
 
 
 class AboutTheGame(SurveyPage):
@@ -272,7 +283,15 @@ def payment_form_url(player):
 
 class Payment(Page):
     @staticmethod
+    def is_displayed(player):
+        return not survey_skipped(player)
+
+    @staticmethod
     def vars_for_template(player):
+        # progress for lab-notes (same record matching_live keeps up to date)
+        player.participant.vars["progress"] = dict(
+            player.participant.vars.get("progress") or {}, stage="finished", t=round(time.time())
+        )
         return dict(
             participant_code=player.participant.code,
             payment_form_url=payment_form_url(player),
