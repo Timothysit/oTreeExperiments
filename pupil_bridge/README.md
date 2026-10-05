@@ -14,31 +14,56 @@ pupil_bridge.py                      --ZMQ  127.0.0.1:50020->  Pupil Capture
 
 ## Running a session (headset laptop)
 
-1. Start Pupil Capture (Pupil Remote enabled, port 50020 is the default).
-2. Start the bridge from the repository root, in a terminal with your Python
-   (e.g. Anaconda Prompt):
+The bridge starts by itself at Windows login (see Setup) and runs in the
+background. For a `matching_live` session:
 
-   ```
-   python pupil_bridge/pupil_bridge.py
-   ```
+1. Plug in the headset and open the room link,
+   e.g. `.../room/mp_lab/?participant_label=laptopA`.
+2. The participant's **Click anywhere to begin** starts the recording. The bridge
+   starts Pupil Capture if it isn't running, checks that both eye cameras deliver
+   pupil data, and starts a recording named `<date>_<room label>_<participant code>`,
+   e.g. `recordings\2026-10-05_laptopA_abc123de\000`. The game starts once Pupil
+   Capture confirms it is recording. If Pupil Capture had to be started first,
+   the page asks for one more click.
+3. After the last trial's feedback the recording stops, before the survey.
+   (The End page stops it too, in case that didn't get through.)
 
-   It prints `Connected to Pupil Capture ...`. Order doesn't matter: if Pupil
-   Capture isn't up yet, or is restarted, the bridge reconnects on the next request.
-3. Start recording in Pupil Capture.
-4. Open the room link, e.g. `.../room/mp_lab/?participant_label=laptopA`.
+If the recording can't be started, the page says **The eye tracker is not
+recording. Please call the experimenter**, with the reason, and the game does
+not start; clicking again retries. Common reasons: headset unplugged, an eye
+window closed, Pupil Capture already recording (stop it by hand), or the
+bridge not running (start it with the "Pupil bridge" shortcut in the Startup
+folder, or `python pupil_bridge\pupil_bridge.py`).
 
-The bridge prints one line per annotation with its latency. To check it is
-working, open <http://127.0.0.1:8765/status> in the browser.
+Recording stays on during the Part 1/2 break. A page reload doesn't start a
+second recording.
+
+To check the bridge: <http://127.0.0.1:8765/status> shows whether it is
+connected and recording. Its output goes to `pupil_bridge/logs/bridge_*.log`
+when it runs in the background, or the console when started by hand.
 
 The first time a page from the Heroku site contacts the bridge, Chrome may ask
 whether the site may access devices on your local network. Allow it once
 on the headset laptop.
 
-Setup once per laptop: the bridge only needs `pyzmq` and `msgpack`
+## Setup (once per laptop)
+
+The bridge only needs `pyzmq` and `msgpack`
 (`pip install -r pupil_bridge/requirements.txt`), which oTree's environment
-already has, so the same environment can run both. The bridge must be started
-from this repository: an older copy elsewhere (e.g. `Documents\pupil_bridge`)
-is the previous version without these fixes.
+already has, so the same environment can run both (see below for creating it).
+Then, with that environment's Python, add the bridge to Windows startup:
+
+```
+python pupil_bridge\install_startup.py
+```
+
+This puts a "Pupil bridge" shortcut in your Startup folder that runs this
+repository's bridge with `pythonw` (no window). Double-click it to start the
+bridge now; `--remove` takes it out of Startup again. Only one bridge can run
+at a time: a second one exits with "Port 8765 is in use".
+
+The bridge must be run from this repository: an older copy elsewhere
+(e.g. `Documents\pupil_bridge`) is the previous version without these fixes.
 
 ## Testing locally with the pupil sync test
 
@@ -51,15 +76,15 @@ conda activate otree
 pip install otree==5.11.4 numpy scipy -r pupil_bridge/requirements.txt
 ```
 
-Then, each in its own Anaconda Prompt from the repository root, after
-`conda activate otree`:
+Then, from the repository root in an Anaconda Prompt after
+`conda activate otree` (the bridge is already running from Startup):
 
 ```
-python pupil_bridge\pupil_bridge.py
 otree devserver
 ```
 
-Start recording in Pupil Capture, open <http://localhost:8000/demo/pupil_sync_test>,
+For the sync test, start recording in Pupil Capture by hand (only
+`matching_live` controls recording), open <http://localhost:8000/demo/pupil_sync_test>,
 click the session-wide link, go full screen (F11) and click **Start sync test**
 (about 42 s of black/white screens).
 

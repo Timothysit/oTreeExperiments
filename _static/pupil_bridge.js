@@ -4,6 +4,7 @@
 //   PupilBridge.init(js_vars.pupil);       // once, js_vars.pupil from pupil_bridge.context
 //   PupilBridge.annotate("trial_start", {block_trial: 3});
 //   PupilBridge.annotate("stim_onset", {}, onsetMs);  // event time as performance.now()
+//   await PupilBridge.startRecording();  /  await PupilBridge.stopRecording();
 //
 // The page measures the offset between its performance.now() clock and Pupil's
 // clock through the bridge, so each annotation is stamped with the time the
@@ -50,12 +51,43 @@
     }
   }
 
+  // options: js_vars.pupil; pass syncClock: false on pages that only control recording
   function init(options = {}) {
-    const { enabled: isEnabled = true, url, ...fields } = options;
+    const { enabled: isEnabled = true, url, syncClock: shouldSync = true, ...fields } = options;
     enabled = isEnabled;
     if (url) baseUrl = url.replace(/\/$/, "");
     context = fields;
-    if (enabled) syncClock();
+    if (enabled && shouldSync) syncClock();
+  }
+
+  async function post(path, body, timeoutMs) {
+    try {
+      const response = await fetch(baseUrl + path, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      const data = await response.json();
+      return response.ok
+        ? { ok: true, ...data }
+        : { ok: false, error: data.error || "pupil bridge returned " + response.status };
+    } catch (err) {
+      return { ok: false, error: "The pupil bridge is not running on this laptop (" + err.message + ")." };
+    }
+  }
+
+  // Starts a Pupil Capture recording named after the participant; the bridge starts
+  // Pupil Capture first if needed, so this can take a minute. Resolves to
+  // {ok: true, rec_path, ...} or {ok: false, error}. Repeating it (page reload) is harmless.
+  function startRecording() {
+    if (!enabled) return Promise.resolve({ ok: true, skipped: true });
+    return post("/recording/start", context, 150000);
+  }
+
+  function stopRecording() {
+    if (!enabled) return Promise.resolve({ ok: true, skipped: true });
+    return post("/recording/stop", context, 20000);
   }
 
   // Resolves to true if Pupil Capture received the annotation.
@@ -88,5 +120,11 @@
     }
   }
 
-  window.PupilBridge = { init, annotate };
+  window.PupilBridge = {
+    init,
+    annotate,
+    startRecording,
+    stopRecording,
+    isEnabled: () => enabled,
+  };
 })();

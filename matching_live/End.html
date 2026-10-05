@@ -49,4 +49,11 @@
   </div>
 </div>
 
+<script src="{{ static 'pupil_bridge.js' }}"></script>
+<script>
+  // the Game page stops the recording after the last trial; this is the fallback
+  PupilBridge.init({ ...js_vars.pupil, syncClock: false });
+  PupilBridge.stopRecording();
+</script>
+
 {{ endblock }}

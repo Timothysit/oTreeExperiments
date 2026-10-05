@@ -187,7 +187,7 @@
       When it is time to choose, move the cursor into the highlighted
       left or right target area. The cursor will start from the center on each round.
     </p>
-    <p style="margin-top:1.5rem; font-weight:bold;">
+    <p id="intro-status" style="margin-top:1.5rem; font-weight:bold;">
       Click anywhere to begin
     </p>
   </div>
@@ -718,13 +718,44 @@
   }
 
   /* ---------- Start ---------- */
-  introOverlay.addEventListener("click", function () {
+  // On the headset laptop the start click first starts the Pupil recording, and the
+  // game only starts once Pupil Capture confirms it is recording.
+  const introStatus = document.getElementById("intro-status");
+  let recordingReady = !PupilBridge.isEnabled();
+  let startingRecording = false;
+
+  function startGame() {
     introOverlay.style.display = "none";
     gameArea.style.display = "block";
     resetVirtualCursorToCenter();
     requestPointerLock();
     liveSend({ type: "start" });
     statusText.textContent = "Wait...";
+  }
+
+  introOverlay.addEventListener("click", async function () {
+    if (startingRecording) return;
+    if (!recordingReady) {
+      startingRecording = true;
+      const clickedAt = performance.now();
+      introStatus.style.color = "";
+      introStatus.textContent = "Starting the eye tracker...";
+      const result = await PupilBridge.startRecording();
+      startingRecording = false;
+      if (!result.ok) {
+        introStatus.style.color = "#c0392b";
+        introStatus.textContent = "The eye tracker is not recording. Please call the experimenter. ("
+          + result.error + ") Click anywhere to try again.";
+        return;
+      }
+      recordingReady = true;
+      // pointer lock needs a recent click; if Pupil Capture had to start up, ask again
+      if (performance.now() - clickedAt > 4000) {
+        introStatus.textContent = "Eye tracker ready. Click anywhere to begin";
+        return;
+      }
+    }
+    startGame();
   });
 
   /* ---------- Break ---------- */
@@ -890,8 +921,10 @@
             document.exitPointerLock();
           }
 
-          setTimeout(function () {
+          setTimeout(async function () {
             statusText.textContent = "Game finished. Moving to summary...";
+            // no pupil recording during the survey; End also stops it as a fallback
+            await PupilBridge.stopRecording();
             const form = document.getElementById("form");
             if (form) form.submit();
           }, 1500);

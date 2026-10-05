@@ -782,6 +782,11 @@ class End(Page):
         )
 
     @staticmethod
+    def js_vars(player: Player):
+        # End stops the pupil recording too, in case the Game page's stop didn't get through
+        return dict(pupil=pupil_js_vars(player, app="matching_live"))
+
+    @staticmethod
     def before_next_page(player: Player, timeout_happened):
         survey = "mp_survey" in player.session.config["app_sequence"] and not player.session.config.get("skip_survey")
         set_progress(player, "survey" if survey else "finished", points=player.total_points)
