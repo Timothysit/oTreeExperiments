@@ -34,7 +34,34 @@ The first time a page from the Heroku site contacts the bridge, Chrome may ask
 whether the site may access devices on your local network. Allow it once
 on the headset laptop.
 
-Setup once per laptop: `pip install -r pupil_bridge/requirements.txt`
+Setup once per laptop: the bridge only needs `pyzmq` and `msgpack`
+(`pip install -r pupil_bridge/requirements.txt`), which oTree's environment
+already has, so the same environment can run both. The bridge must be started
+from this repository: an older copy elsewhere (e.g. `Documents\pupil_bridge`)
+is the previous version without these fixes.
+
+## Testing locally with the pupil sync test
+
+To try changes before they are on Heroku, run oTree on the headset laptop.
+In an Anaconda Prompt, once:
+
+```
+conda create -n otree python=3.12 -y
+conda activate otree
+pip install otree==5.11.4 numpy scipy -r pupil_bridge/requirements.txt
+```
+
+Then, each in its own Anaconda Prompt from the repository root, after
+`conda activate otree`:
+
+```
+python pupil_bridge\pupil_bridge.py
+otree devserver
+```
+
+Start recording in Pupil Capture, open <http://localhost:8000/demo/pupil_sync_test>,
+click the session-wide link, go full screen (F11) and click **Start sync test**
+(about 42 s of black/white screens).
 
 ## Which laptops send annotations
 

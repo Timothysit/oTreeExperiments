@@ -10,18 +10,17 @@ and also appended to a local JSONL log as a backup.
 """
 import argparse
 import json
-import logging
 import statistics
 import sys
 import threading
 import time
 from collections import deque
 from datetime import datetime
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import msgpack
 import zmq
-from flask import Flask, jsonify, request
 
 LOG_DIR = Path(__file__).resolve().parent / "logs"
 
@@ -150,75 +149,115 @@ def build_annotation(data, receive_ts):
     return annotation
 
 
-def create_app(pupil):
-    app = Flask(__name__)
-    stats = {"sent": 0, "receive_fallbacks": 0, "latencies_ms": deque(maxlen=500)}
-    LOG_DIR.mkdir(exist_ok=True)
-    log_path = LOG_DIR / f"annotations_{datetime.now():%Y-%m-%d_%H%M%S}.jsonl"
-    log_lock = threading.Lock()
+class Bridge:
+    """HTTP side of the bridge: request handling, stats and the backup log."""
 
-    @app.after_request
-    def add_cors_headers(response):
-        # the page is served from the oTree server (e.g. Heroku), so every
-        # response needs CORS headers, and Chrome asks before a public site
-        # may reach a local address
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
-        if request.headers.get("Access-Control-Request-Private-Network"):
-            response.headers["Access-Control-Allow-Private-Network"] = "true"
-        response.headers["Cache-Control"] = "no-store"
-        return response
+    def __init__(self, pupil):
+        self.pupil = pupil
+        self.sent = 0
+        self.receive_fallbacks = 0
+        self.latencies_ms = deque(maxlen=500)
+        LOG_DIR.mkdir(exist_ok=True)
+        self.log_path = LOG_DIR / f"annotations_{datetime.now():%Y-%m-%d_%H%M%S}.jsonl"
+        self.lock = threading.Lock()
 
-    @app.get("/clock")
-    def clock():
+    def clock(self):
         try:
-            return jsonify(pupil_time=pupil.time())
+            return 200, {"pupil_time": self.pupil.time()}
         except PupilUnavailable as e:
-            return jsonify(error=str(e)), 503
+            return 503, {"error": str(e)}
 
-    @app.post("/annotation")
-    def annotation():
-        data = request.get_json(force=True, silent=True)
-        if not isinstance(data, dict):
-            return jsonify(error="expected a JSON object"), 400
+    def annotation(self, body):
         try:
-            sent = pupil.time_and_publish(lambda t: build_annotation(dict(data), t))
+            data = json.loads(body)
+        except ValueError:
+            data = None
+        if not isinstance(data, dict):
+            return 400, {"error": "expected a JSON object"}
+        try:
+            sent = self.pupil.time_and_publish(lambda t: build_annotation(dict(data), t))
         except PupilUnavailable as e:
             print(f"NOT SENT ({e}): {data.get('label')}", flush=True)
-            return jsonify(error=str(e)), 503
+            return 503, {"error": str(e)}
 
-        stats["sent"] += 1
-        if sent["timestamp_source"] == "receive":
-            stats["receive_fallbacks"] += 1
-        else:
-            stats["latencies_ms"].append(sent["latency_ms"])
-        with log_lock, log_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(sent, default=str) + "\n")
+        with self.lock:
+            self.sent += 1
+            if sent["timestamp_source"] == "receive":
+                self.receive_fallbacks += 1
+            else:
+                self.latencies_ms.append(sent["latency_ms"])
+            with self.log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(sent, default=str) + "\n")
         print(f"{sent['label']:<28} {sent['timestamp_source']:<7} "
               f"latency {sent['latency_ms']:7.1f} ms", flush=True)
-        return jsonify(status="ok", label=sent["label"], timestamp=sent["timestamp"])
+        return 200, {"status": "ok", "label": sent["label"], "timestamp": sent["timestamp"]}
 
-    @app.get("/status")
-    def status():
+    def status(self):
         try:
-            pupil_time = pupil.time()
+            pupil_time = self.pupil.time()
         except PupilUnavailable:
             pupil_time = None
-        latencies = list(stats["latencies_ms"])
-        return jsonify(
-            pupil_connected=pupil.connected,
-            pupil_time=pupil_time,
-            pub_port=pupil.pub_port,
-            last_error=pupil.last_error,
-            annotations_sent=stats["sent"],
-            receive_time_fallbacks=stats["receive_fallbacks"],
-            latency_ms_median=statistics.median(latencies) if latencies else None,
-            latency_ms_max=max(latencies) if latencies else None,
-            log_file=str(log_path),
-        )
+        latencies = list(self.latencies_ms)
+        return 200, {
+            "pupil_connected": self.pupil.connected,
+            "pupil_time": pupil_time,
+            "pub_port": self.pupil.pub_port,
+            "last_error": self.pupil.last_error,
+            "annotations_sent": self.sent,
+            "receive_time_fallbacks": self.receive_fallbacks,
+            "latency_ms_median": statistics.median(latencies) if latencies else None,
+            "latency_ms_max": max(latencies) if latencies else None,
+            "log_file": str(self.log_path),
+        }
 
-    return app
+
+def make_handler(bridge):
+    class Handler(BaseHTTPRequestHandler):
+        def _reply(self, status, payload=None):
+            body = b"" if payload is None else json.dumps(payload).encode()
+            self.send_response(status)
+            # the page is served from the oTree server (e.g. Heroku), so every
+            # response needs CORS headers, and Chrome asks before a public site
+            # may reach a local address
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            if self.headers.get("Access-Control-Request-Private-Network"):
+                self.send_header("Access-Control-Allow-Private-Network", "true")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_OPTIONS(self):
+            self._reply(204)
+
+        def do_GET(self):
+            path = self.path.split("?")[0]
+            if path == "/clock":
+                self._reply(*bridge.clock())
+            elif path == "/status":
+                self._reply(*bridge.status())
+            else:
+                self._reply(404, {"error": "not found"})
+
+        def do_POST(self):
+            body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            if self.path.split("?")[0] == "/annotation":
+                self._reply(*bridge.annotation(body))
+            else:
+                self._reply(404, {"error": "not found"})
+
+        def log_message(self, format, *args):
+            pass  # one line per annotation is enough
+
+    return Handler
+
+
+class Server(ThreadingHTTPServer):
+    daemon_threads = True
+    request_queue_size = 128  # default 5 refuses bursts of simultaneous requests
 
 
 def main(argv=None):
@@ -234,10 +273,12 @@ def main(argv=None):
     except PupilUnavailable:
         pass  # already warned; it connects on a later request
 
-    app = create_app(pupil)
-    logging.getLogger("werkzeug").setLevel(logging.WARNING)  # one line per annotation is enough
-    print(f"Pupil bridge on http://127.0.0.1:{args.port}  (status: /status)", flush=True)
-    app.run(host="127.0.0.1", port=args.port, debug=False, threaded=True)
+    server = Server(("127.0.0.1", args.port), make_handler(Bridge(pupil)))
+    print(f"Pupil bridge on http://127.0.0.1:{args.port}  (status: /status, stop: Ctrl+C)", flush=True)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == "__main__":
