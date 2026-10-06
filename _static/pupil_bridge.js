@@ -90,6 +90,23 @@
     return post("/recording/stop", context, 20000);
   }
 
+  // For the eye check page: start Pupil Capture if it isn't running (can take a minute).
+  function startPupilCapture() {
+    return post("/pupil/start", {}, 120000);
+  }
+
+  // For the eye check page: {ok: true, eyes: {"0": {fps, confidence, diameter_px,
+  // diameter_mm}, ...}, required: [0, 1]} from about one second of pupil data.
+  async function eyeStats() {
+    try {
+      const response = await fetch(baseUrl + "/eyes", { signal: AbortSignal.timeout(10000) });
+      const data = await response.json();
+      return response.ok ? { ok: true, ...data } : { ok: false, error: data.error };
+    } catch (err) {
+      return { ok: false, error: "The pupil bridge is not running on this laptop (" + err.message + ")." };
+    }
+  }
+
   // Resolves to true if Pupil Capture received the annotation.
   async function annotate(label, fields = {}, eventTimeMs = performance.now()) {
     if (!enabled) return false;
@@ -125,6 +142,8 @@
     annotate,
     startRecording,
     stopRecording,
+    startPupilCapture,
+    eyeStats,
     isEnabled: () => enabled,
   };
 })();

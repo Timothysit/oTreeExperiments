@@ -19,13 +19,18 @@ background. For a `matching_live` session:
 
 1. Plug in the headset and open the room link,
    e.g. `.../room/mp_lab/?participant_label=laptopA`.
-2. The participant's **Click anywhere to begin** starts the recording. The bridge
-   starts Pupil Capture if it isn't running, checks that both eye cameras deliver
-   pupil data, and starts a recording named `<date>_<room label>_<participant code>`,
+2. **Eye tracker check** (first page, headset laptop only, for the experimenter):
+   it starts Pupil Capture if it isn't running and shows live confidence, pupil
+   size and samples/s for each eye. With the headset on the participant, switch
+   to Pupil Capture (Alt+Tab) and adjust each eye camera until the pupil is
+   tracked (confidence above 0.8, green), then click **Eye cameras OK, continue**.
+3. The participant's **Click anywhere to begin** starts the recording. The bridge
+   checks that both eye cameras deliver pupil data and starts a recording named
+   `<date>_<room label>_<participant code>`,
    e.g. `recordings\2026-10-05_laptopA_abc123de\000`. The game starts once Pupil
    Capture confirms it is recording. If Pupil Capture had to be started first,
    the page asks for one more click.
-3. After the last trial's feedback the recording stops, before the survey.
+4. After the last trial's feedback the recording stops, before the survey.
    (The End page stops it too, in case that didn't get through.)
 
 If the recording can't be started, the page says **The eye tracker is not

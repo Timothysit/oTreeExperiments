@@ -6,6 +6,8 @@ and also appended to a local JSONL log as a backup.
 
     GET  /clock             Pupil time now, used by the page to sync its clock
     POST /annotation        send one annotation
+    POST /pupil/start       start Pupil Capture if needed (eye check page)
+    GET  /eyes              about 1 s of pupil confidence/size per eye (eye check page)
     POST /recording/start   start Pupil Capture if needed, check the eye cameras,
                             start a recording named after the participant
     POST /recording/stop    stop the recording
@@ -180,23 +182,41 @@ class PupilConnection:
             raise RecordingError("Pupil Capture did not confirm that the recording stopped.")
         return rec_path
 
-    def eyes_streaming(self, timeout_s=3.0):
-        """Ids of the eye cameras that delivered pupil data within timeout_s."""
+    def eye_stats(self, duration_s=1.0):
+        """Pupil data per eye camera over duration_s: {eye_id: {fps, confidence,
+        diameter_px, diameter_mm}} (medians); eyes without data are absent."""
         sub_port = self._run(lambda: self.sub_port)
         sock = self.ctx.socket(zmq.SUB)
         sock.setsockopt(zmq.LINGER, 0)
         sock.connect(f"tcp://{self.host}:{sub_port}")
         sock.setsockopt_string(zmq.SUBSCRIBE, "pupil.")
-        seen = set()
-        deadline = time.monotonic() + timeout_s
+        data = {}  # (eye_id, "2d"/"3d") -> list of datums
+        deadline = time.monotonic() + duration_s
         try:
-            while time.monotonic() < deadline and len(seen) < 2:
-                if sock.poll(100):
-                    topic = sock.recv_multipart()[0].decode()  # e.g. pupil.0.2d
-                    seen.add(int(topic.split(".")[1]))
+            while time.monotonic() < deadline:
+                if sock.poll(50):
+                    frames = sock.recv_multipart()
+                    _, eye, method = frames[0].decode().split(".")[:3]  # e.g. pupil.0.2d
+                    data.setdefault((int(eye), method), []).append(
+                        msgpack.unpackb(frames[1], raw=False))
         finally:
             sock.close()
-        return seen
+
+        def median(datums, key):
+            values = [d[key] for d in datums if isinstance(d.get(key), (int, float))]
+            return round(statistics.median(values), 3) if values else None
+
+        stats = {}
+        for eye in sorted({eye for eye, _ in data}):
+            d2, d3 = data.get((eye, "2d"), []), data.get((eye, "3d"), [])
+            main = d2 or d3
+            stats[eye] = {
+                "fps": round(len(main) / duration_s),
+                "confidence": median(main, "confidence"),
+                "diameter_px": median(d2, "diameter"),
+                "diameter_mm": median(d3, "diameter_3d"),
+            }
+        return stats
 
     @property
     def connected(self):
@@ -264,6 +284,7 @@ class Bridge:
         self.pupil_capture_exe = pupil_capture_exe
         self.eyes = set(eyes)
         self.recording_lock = threading.Lock()
+        self.launch_lock = threading.Lock()
         self.sent = 0
         self.receive_fallbacks = 0
         self.latencies_ms = deque(maxlen=500)
@@ -304,6 +325,10 @@ class Bridge:
 
     def ensure_pupil_capture(self, timeout_s=90):
         """Start Pupil Capture if it isn't running and wait until it answers."""
+        with self.launch_lock:  # two pages asking at once must not start it twice
+            self._ensure_pupil_capture(timeout_s)
+
+    def _ensure_pupil_capture(self, timeout_s):
         try:
             self.pupil.time()
             return
@@ -326,6 +351,23 @@ class Bridge:
                 time.sleep(1)
         raise RecordingError(f"Pupil Capture did not respond within {timeout_s} s of starting.")
 
+    def pupil_start(self, body):
+        """For the eye check page: start Pupil Capture if needed."""
+        try:
+            self.ensure_pupil_capture()
+        except RecordingError as e:
+            return 503, {"error": str(e)}
+        return 200, {"status": "running"}
+
+    def eye_check(self):
+        """For the eye check page: about one second of pupil data per eye."""
+        try:
+            stats = self.pupil.eye_stats()
+        except PupilUnavailable as e:
+            return 503, {"error": str(e)}
+        return 200, {"eyes": {str(eye): s for eye, s in stats.items()},
+                     "required": sorted(self.eyes)}
+
     def recording_start(self, body):
         data = json.loads(body or b"{}")
         if not isinstance(data, dict):
@@ -346,9 +388,9 @@ class Bridge:
                 self.ensure_pupil_capture()
                 # the eye windows can take a few seconds more than Pupil Capture itself
                 deadline = time.monotonic() + 20
-                missing = self.eyes - self.pupil.eyes_streaming()
+                missing = self.eyes - set(self.pupil.eye_stats())
                 while missing and time.monotonic() < deadline:
-                    missing = self.eyes - self.pupil.eyes_streaming()
+                    missing = self.eyes - set(self.pupil.eye_stats())
                 if missing:
                     raise RecordingError(
                         "No pupil data from eye camera " + " and ".join(map(str, sorted(missing)))
@@ -419,6 +461,8 @@ def make_handler(bridge):
                 self._reply(*bridge.clock())
             elif path == "/status":
                 self._reply(*bridge.status())
+            elif path == "/eyes":
+                self._reply(*bridge.eye_check())
             else:
                 self._reply(404, {"error": "not found"})
 
@@ -426,6 +470,7 @@ def make_handler(bridge):
             body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
             routes = {
                 "/annotation": bridge.annotation,
+                "/pupil/start": bridge.pupil_start,
                 "/recording/start": bridge.recording_start,
                 "/recording/stop": bridge.recording_stop,
             }

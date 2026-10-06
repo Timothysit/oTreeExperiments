@@ -3,7 +3,7 @@ import random
 import time 
 import json 
 from .algorithms import MatchingPennies2, BlockFlipperWithExtension
-from pupil_bridge.context import pupil_js_vars
+from pupil_bridge.context import pupil_bridge_enabled, pupil_js_vars
 
 
 class C(BaseConstants):
@@ -718,6 +718,19 @@ def live_game_with_progress(player: Player, data):
     return reply
 
 
+class EyeCheck(Page):
+    """Experimenter page on the headset laptop: starts Pupil Capture and shows live
+    pupil confidence per eye, to adjust the eye cameras before the game."""
+
+    @staticmethod
+    def is_displayed(player):
+        return pupil_bridge_enabled(player)
+
+    @staticmethod
+    def js_vars(player):
+        return dict(pupil=pupil_js_vars(player, app="matching_live"))
+
+
 class Setup(Page):
     form_model = "group"
     form_fields = ["single_opponent_p1", "single_opponent_p2", "num_trials_single", "num_trials_multi"]
@@ -791,7 +804,7 @@ class End(Page):
         survey = "mp_survey" in player.session.config["app_sequence"] and not player.session.config.get("skip_survey")
         set_progress(player, "survey" if survey else "finished", points=player.total_points)
 
-page_sequence = [Setup, WaitAfterSetup, Game, End]
+page_sequence = [EyeCheck, Setup, WaitAfterSetup, Game, End]
 
 
 def custom_export(players):
