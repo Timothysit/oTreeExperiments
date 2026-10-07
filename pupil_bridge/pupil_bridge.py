@@ -495,6 +495,13 @@ class Server(ThreadingHTTPServer):
     # on Windows, SO_REUSEADDR would let a second bridge bind the same port
     allow_reuse_address = False
 
+    def handle_error(self, request, client_address):
+        # a page closed or navigated away mid-request: nothing went wrong here
+        if isinstance(sys.exc_info()[1], (ConnectionAbortedError, ConnectionResetError,
+                                           BrokenPipeError)):
+            return
+        super().handle_error(request, client_address)
+
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
