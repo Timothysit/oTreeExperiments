@@ -13,8 +13,8 @@
   .good { background: #2e9d4f; }
   .fair { background: #e0a100; }
   .bad { background: #c0392b; }
-  #pupil-status { font-weight: 600; }
-  #pupil-status.error { color: #c0392b; }
+  #pupil-status, #disk-status { font-weight: 600; }
+  #pupil-status.error, #disk-status.error { color: #c0392b; }
 </style>
 
 <p>
@@ -42,7 +42,10 @@
   the participant clicks to begin the game.
 </p>
 
-<button class="otree-btn-next btn btn-primary">Eye cameras OK, continue</button>
+<p id="disk-status">Checking disk space...</p>
+
+<button class="otree-btn-next btn btn-primary" id="continue">Eye cameras OK, continue</button>
+<button class="otree-btn-next btn btn-outline-danger" id="continue-anyway" hidden>Continue anyway</button>
 
 <script src="{{ static 'pupil_bridge.js' }}"></script>
 <script>
@@ -118,6 +121,34 @@
       pollEyes();
     }
   }
+
+  // A recording needs room on the drive Pupil Capture records to; below the
+  // session's pupil_min_free_gb the normal Continue is disabled.
+  const diskText = document.getElementById("disk-status");
+  const continueButton = document.getElementById("continue");
+  const continueAnyway = document.getElementById("continue-anyway");
+
+  async function checkDisk() {
+    const disk = await PupilBridge.diskSpace();
+    let enough = true;
+    if (disk.ok) {
+      enough = disk.free_gb >= js_vars.min_free_gb;
+      diskText.innerHTML = `<span class="dot ${enough ? "good" : "bad"}"></span>`;
+      diskText.append(`${disk.free_gb} GB free for recordings (${disk.recordings_dir}); `
+        + `a full session needs about ${js_vars.min_free_gb} GB.`
+        + (enough ? "" : " Free up space, e.g. move old recordings off this laptop, before starting."));
+    } else {
+      diskText.textContent = disk.bridgeDown
+        ? "Disk space: checked once the pupil bridge is running."
+        : "Disk space could not be checked: " + disk.error;
+    }
+    diskText.classList.toggle("error", !enough);
+    continueButton.disabled = !enough;
+    continueAnyway.hidden = enough;
+    setTimeout(checkDisk, 10000);
+  }
+
+  checkDisk();
 
   launchButton.addEventListener("click", async function () {
     launchButton.disabled = true;

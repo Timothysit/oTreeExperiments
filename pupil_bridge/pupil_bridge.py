@@ -8,6 +8,7 @@ and also appended to a local JSONL log as a backup.
     POST /annotation        send one annotation
     POST /pupil/start       start Pupil Capture if needed (eye check page)
     GET  /eyes              about 1 s of pupil confidence/size per eye (eye check page)
+    GET  /disk              free space where Pupil Capture saves recordings (eye check page)
     POST /recording/start   start Pupil Capture if needed, check the eye cameras,
                             start a recording named after the participant
     POST /recording/stop    stop the recording
@@ -19,6 +20,7 @@ logs/bridge_<date>.log instead.
 import argparse
 import json
 import re
+import shutil
 import statistics
 import subprocess
 import sys
@@ -35,6 +37,8 @@ import zmq
 LOG_DIR = Path(__file__).resolve().parent / "logs"
 PUPIL_CAPTURE_GLOB = "Pupil-Labs/*/Pupil Capture*/pupil_capture.exe"
 PROGRAM_DIRS = [Path(r"C:\Program Files (x86)"), Path(r"C:\Program Files")]
+# Pupil Capture saves its settings, including the Recorder's folder, here on exit
+PUPIL_SETTINGS = Path.home() / "pupil_capture_settings" / "user_settings_world"
 
 # An event time from the page is only trusted if it falls in this window
 # before the bridge received it; otherwise the receive time is used.
@@ -231,6 +235,18 @@ class RecordingError(Exception):
     pass
 
 
+def recordings_dir():
+    """Pupil Capture's recordings folder, from its saved Recorder settings."""
+    try:
+        settings = msgpack.unpackb(PUPIL_SETTINGS.read_bytes(), raw=False, strict_map_key=False)
+        for name, plugin_args in settings.get("loaded_plugins", []):
+            if name == "Recorder" and plugin_args.get("rec_root_dir"):
+                return Path(plugin_args["rec_root_dir"])
+    except (OSError, ValueError, TypeError, AttributeError, msgpack.UnpackException):
+        pass
+    return Path.home() / "recordings"  # Pupil Capture's default
+
+
 def find_pupil_capture():
     found = sorted(p for d in PROGRAM_DIRS for p in d.glob(PUPIL_CAPTURE_GLOB))
     return found[-1] if found else None
@@ -359,6 +375,20 @@ class Bridge:
             return 503, {"error": str(e)}
         return 200, {"status": "running"}
 
+    def disk(self):
+        """For the eye check page: free space on the drive that holds the recordings."""
+        folder = recordings_dir()
+        existing = next((p for p in [folder, *folder.parents] if p.exists()), None)
+        if existing is None:
+            return 503, {"error": f"Recordings folder {folder} is on a drive that isn't available."}
+        usage = shutil.disk_usage(existing)
+        return 200, {
+            "recordings_dir": str(folder),
+            # GB as Windows shows them (1024**3 bytes)
+            "free_gb": round(usage.free / 2**30, 1),
+            "total_gb": round(usage.total / 2**30, 1),
+        }
+
     def eye_check(self):
         """For the eye check page: about one second of pupil data per eye."""
         try:
@@ -461,6 +491,8 @@ def make_handler(bridge):
                 self._reply(*bridge.clock())
             elif path == "/status":
                 self._reply(*bridge.status())
+            elif path == "/disk":
+                self._reply(*bridge.disk())
             elif path == "/eyes":
                 self._reply(*bridge.eye_check())
             else:
