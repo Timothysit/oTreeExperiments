@@ -129,6 +129,9 @@ SESSION_CONFIG_DEFAULTS = dict(
     # {participant_code} is replaced with the participant's oTree code, so use a
     # Google Forms pre-filled link with that as the participant-ID answer.
     payment_form_url=PAYMENT_FORM_URL,
+    # mp_lab laptops with a Pupil headset (comma-separated labels); only these send
+    # annotations to the pupil bridge, see pupil_bridge/README.md
+    pupil_bridge_labels="laptopA",
 )
 
 SESSION_CONFIG_CHOICES = dict(

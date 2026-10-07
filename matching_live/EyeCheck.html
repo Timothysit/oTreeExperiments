@@ -1,0 +1,106 @@
+{{ block title }}Eye tracker check{{ endblock }}
+
+{{ block content }}
+
+<style>
+  .eye-table { width: 100%; max-width: 640px; margin: 1.5rem 0; }
+  .eye-table th, .eye-table td { padding: 0.5rem 0.75rem; text-align: left; }
+  .eye-table td.num { font-variant-numeric: tabular-nums; }
+  .dot {
+    display: inline-block; width: 0.9em; height: 0.9em; border-radius: 50%;
+    margin-right: 0.4em; vertical-align: -0.1em; background: #bbb;
+  }
+  .good { background: #2e9d4f; }
+  .fair { background: #e0a100; }
+  .bad { background: #c0392b; }
+  #pupil-status { font-weight: 600; }
+  #pupil-status.error { color: #c0392b; }
+</style>
+
+<p>
+  For the experimenter, before the participant starts. Once the headset is on,
+  switch to Pupil Capture (<kbd>Alt</kbd>+<kbd>Tab</kbd>). In each eye window,
+  adjust the eye camera until the pupil is in view and the red ellipse follows it.
+  Ask the participant to look at the screen while you check the numbers below.
+</p>
+
+<p id="pupil-status">Starting Pupil Capture...</p>
+
+<table class="eye-table table">
+  <thead>
+    <tr><th>Eye camera</th><th>Confidence</th><th>Pupil size</th><th>Samples/s</th></tr>
+  </thead>
+  <tbody>
+    <tr id="eye-0"><td>Eye 0</td><td class="num">–</td><td class="num">–</td><td class="num">–</td></tr>
+    <tr id="eye-1"><td>Eye 1</td><td class="num">–</td><td class="num">–</td><td class="num">–</td></tr>
+  </tbody>
+</table>
+
+<p class="text-muted">
+  Aim for confidence above 0.8 on both eyes (green). The recording starts when
+  the participant clicks to begin the game.
+</p>
+
+<button class="otree-btn-next btn btn-primary">Eye cameras OK, continue</button>
+
+<script src="{{ static 'pupil_bridge.js' }}"></script>
+<script>
+  PupilBridge.init({ ...js_vars.pupil, syncClock: false });
+
+  const statusText = document.getElementById("pupil-status");
+
+  function showStatus(text, isError) {
+    statusText.textContent = text;
+    statusText.classList.toggle("error", Boolean(isError));
+  }
+
+  function quality(confidence) {
+    if (confidence == null) return "";
+    return confidence >= 0.8 ? "good" : confidence >= 0.6 ? "fair" : "bad";
+  }
+
+  function showEye(id, s) {
+    const cells = document.querySelectorAll(`#eye-${id} td`);
+    if (!s) {
+      cells[1].innerHTML = '<span class="dot bad"></span>no data';
+      cells[2].textContent = cells[3].textContent = "–";
+      return;
+    }
+    cells[1].innerHTML = `<span class="dot ${quality(s.confidence)}"></span>`
+      + (s.confidence == null ? "–" : s.confidence.toFixed(2));
+    // pupil size is only meaningful while the pupil is being detected
+    const detected = s.confidence != null && s.confidence >= 0.6;
+    // mm comes from Pupil's 3D eye model, which is nonsense until it has fitted
+    const mm = s.diameter_mm != null && s.diameter_mm >= 1 && s.diameter_mm <= 10
+      ? ` (${s.diameter_mm.toFixed(1)} mm)` : "";
+    cells[2].textContent = !detected || s.diameter_px == null ? "–"
+      : s.diameter_px.toFixed(0) + " px" + mm;
+    cells[3].textContent = s.fps;
+  }
+
+  async function pollEyes() {
+    const result = await PupilBridge.eyeStats();
+    if (!result.ok) {
+      showStatus("No data from Pupil Capture: " + result.error, true);
+    } else {
+      const missing = result.required.filter((id) => !(String(id) in result.eyes));
+      showStatus(missing.length
+        ? "Pupil Capture is running, but eye camera " + missing.join(" and ")
+          + " sends no data: check the headset cable and that the eye windows are open."
+        : "Pupil Capture is running.", missing.length > 0);
+      for (const id of [0, 1]) showEye(id, result.eyes[String(id)]);
+    }
+    setTimeout(pollEyes, 300);  // each check itself takes about a second
+  }
+
+  (async function () {
+    const started = await PupilBridge.startPupilCapture();
+    if (!started.ok) {
+      showStatus("Pupil Capture could not be started: " + started.error, true);
+      return;
+    }
+    pollEyes();
+  })();
+</script>
+
+{{ endblock }}
