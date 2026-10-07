@@ -723,6 +723,7 @@
   const introStatus = document.getElementById("intro-status");
   let recordingReady = !PupilBridge.isEnabled();
   let startingRecording = false;
+  let bridgeDown = false;  // the last attempt found no bridge: the next click starts it
 
   function startGame() {
     introOverlay.style.display = "none";
@@ -740,12 +741,15 @@
       const clickedAt = performance.now();
       introStatus.style.color = "";
       introStatus.textContent = "Starting the eye tracker...";
-      const result = await PupilBridge.startRecording();
+      let result = bridgeDown ? await PupilBridge.launchBridge() : { ok: true };
+      if (result.ok) result = await PupilBridge.startRecording();
       startingRecording = false;
       if (!result.ok) {
+        bridgeDown = Boolean(result.bridgeDown);
         introStatus.style.color = "#c0392b";
         introStatus.textContent = "The eye tracker is not recording. Please call the experimenter. ("
-          + result.error + ") Click anywhere to try again.";
+          + result.error + ") Click anywhere to "
+          + (bridgeDown ? "start the pupil bridge and try again." : "try again.");
         return;
       }
       recordingReady = true;

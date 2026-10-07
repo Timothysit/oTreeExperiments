@@ -73,8 +73,41 @@
         ? { ok: true, ...data }
         : { ok: false, error: data.error || "pupil bridge returned " + response.status };
     } catch (err) {
-      return { ok: false, error: "The pupil bridge is not running on this laptop (" + err.message + ")." };
+      return bridgeDown(err);
     }
+  }
+
+  function bridgeDown(err) {
+    return {
+      ok: false,
+      bridgeDown: true,
+      error: "The pupil bridge is not running on this laptop (" + err.message + ").",
+    };
+  }
+
+  // Starts the bridge through the pupilbridge: link type (pupil_bridge/install_windows.py).
+  // Call it from a click: Chrome only opens such links on a user action, and asks
+  // once whether to allow it. Resolves to {ok: true} once the bridge answers.
+  async function launchBridge(timeoutMs = 30000) {
+    const link = document.createElement("a");
+    link.href = "pupilbridge:start";
+    link.click();
+    const deadline = performance.now() + timeoutMs;
+    while (performance.now() < deadline) {
+      try {
+        const response = await fetch(baseUrl + "/status", { signal: AbortSignal.timeout(2000) });
+        if (response.ok) return { ok: true };
+      } catch (err) {
+        // not up yet
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    return {
+      ok: false,
+      bridgeDown: true,
+      error: "The pupil bridge did not start. Allow Chrome to open it, or run "
+        + "pupil_bridge/install_windows.py once on this laptop.",
+    };
   }
 
   // Starts a Pupil Capture recording named after the participant; the bridge starts
@@ -103,7 +136,7 @@
       const data = await response.json();
       return response.ok ? { ok: true, ...data } : { ok: false, error: data.error };
     } catch (err) {
-      return { ok: false, error: "The pupil bridge is not running on this laptop (" + err.message + ")." };
+      return bridgeDown(err);
     }
   }
 
@@ -144,6 +177,7 @@
     stopRecording,
     startPupilCapture,
     eyeStats,
+    launchBridge,
     isEnabled: () => enabled,
   };
 })();
