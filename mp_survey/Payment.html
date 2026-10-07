@@ -8,7 +8,43 @@
         <code style="font-size: 1.2rem;">{{ participant_code }}</code>
     </p>
 
-    {{ if payment_form_url }}
+    {{ if collect_payment_details }}
+    {# Inputs have no name attribute: they are sent only via liveSend (encrypted on the
+       server), never posted as an oTree form. autocomplete off: the laptops are shared. #}
+    <div id="payment-form">
+        <p>
+            To get paid, please enter your details below. They are encrypted as soon as they reach
+            our server and are used only to pay you; they are kept separately from your answers.
+        </p>
+        <div class="mb-3">
+            <label class="form-label" for="pay-full_name">Full name (as on your bank account)</label>
+            <input class="form-control" id="pay-full_name" autocomplete="off" maxlength="100">
+            <div class="invalid-feedback" id="err-full_name"></div>
+        </div>
+        <div class="mb-3">
+            <label class="form-label" for="pay-email">Email address</label>
+            <input class="form-control" id="pay-email" type="email" autocomplete="off" maxlength="200">
+            <div class="invalid-feedback" id="err-email"></div>
+        </div>
+        <div class="mb-3">
+            <label class="form-label" for="pay-sort_code">Sort code</label>
+            <input class="form-control" id="pay-sort_code" inputmode="numeric" autocomplete="off"
+                   placeholder="12-34-56" maxlength="8" style="max-width: 12rem;">
+            <div class="invalid-feedback" id="err-sort_code"></div>
+        </div>
+        <div class="mb-3">
+            <label class="form-label" for="pay-account_number">Account number</label>
+            <input class="form-control" id="pay-account_number" inputmode="numeric" autocomplete="off"
+                   placeholder="12345678" maxlength="10" style="max-width: 12rem;">
+            <div class="invalid-feedback" id="err-account_number"></div>
+        </div>
+        <div class="alert alert-danger" id="err-form" style="display: none;"></div>
+        <button type="button" class="btn btn-primary btn-lg" id="pay-submit">Submit payment details</button>
+    </div>
+    <div id="payment-done" class="alert alert-success" style="display: none;">
+        Thank you, your payment details have been received. Please let the experimenter know you have finished.
+    </div>
+    {{ elif payment_form_url }}
     <p>
         To get paid, please fill in the payment form. Your participant ID is filled in for you.
         It opens in a new tab.
@@ -22,4 +58,39 @@
     <p>Please let the experimenter know you have finished; they will explain how you get paid.</p>
     {{ endif }}
 
+{{ endblock }}
+
+{{ block scripts }}
+{{ if collect_payment_details }}
+<script>
+    const PAY_FIELDS = ['full_name', 'email', 'sort_code', 'account_number'];
+    const payButton = document.getElementById('pay-submit');
+
+    payButton.addEventListener('click', function () {
+        const data = {};
+        for (const f of PAY_FIELDS) data[f] = document.getElementById('pay-' + f).value;
+        payButton.disabled = true;
+        liveSend(data);
+    });
+
+    function liveRecv(resp) {
+        payButton.disabled = false;
+        const errors = resp.errors || {};
+        for (const f of PAY_FIELDS) {
+            const input = document.getElementById('pay-' + f);
+            input.classList.toggle('is-invalid', f in errors);
+            document.getElementById('err-' + f).textContent = errors[f] || '';
+        }
+        const formErr = document.getElementById('err-form');
+        formErr.textContent = errors.form || '';
+        formErr.style.display = errors.form ? '' : 'none';
+        if (resp.ok) {
+            // clear the details from the page; the laptop stays open for the next participant
+            for (const f of PAY_FIELDS) document.getElementById('pay-' + f).value = '';
+            document.getElementById('payment-form').style.display = 'none';
+            document.getElementById('payment-done').style.display = '';
+        }
+    }
+</script>
+{{ endif }}
 {{ endblock }}

@@ -6,7 +6,9 @@ dependencies = [
   "msgpack>=1.1.2",
   "numpy>=2.2.6",
   "otree",
+  "pandas>=2.3.3",
   "psycopg2-binary>=2.9.11",
+  "pynacl>=1.6.2",
   "pyzmq>=27.1.0",
   "scipy>=1.15.3",
 ]
