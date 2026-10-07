@@ -48,13 +48,15 @@ class Group(BaseGroup):
     pass
 
 
+# Every field is blank=True so test runs can leave anything empty; for real
+# participants, SurveyPage.error_message requires all but OPTIONAL_FIELDS.
 def _radio(label, choices):
-    return models.StringField(label=label, choices=choices, widget=widgets.RadioSelect)
+    return models.StringField(label=label, choices=choices, widget=widgets.RadioSelect, blank=True)
 
 
 def _scale(label, n):
     return models.IntegerField(
-        label=label, choices=list(range(1, n + 1)), widget=widgets.RadioSelectHorizontal
+        label=label, choices=list(range(1, n + 1)), widget=widgets.RadioSelectHorizontal, blank=True
     )
 
 
@@ -203,9 +205,22 @@ class PaymentDetails(ExtraModel):
     submitted_at = models.FloatField()
 
 
-def survey_skipped(player):
-    """Test runs can skip the questionnaire: session config skip_survey (lab-notes sets it)."""
+# free-text answers, and gad_difficulty (only asked if a GAD-7 problem was ticked)
+OPTIONAL_FIELDS = {
+    'interface_clear', 'interface_confusing', 'instructions_missing', 'two_parts_cue',
+    'strategy_description', 'felt_lost', 'technical_problems', 'suggestions', 'gad_difficulty',
+}
+
+
+def survey_optional(player):
+    """Test runs show the questionnaire and payment form but let you skip every
+    question: session config skip_survey (lab-notes sets it; the name predates
+    the pages being shown)."""
     return bool(player.session.config.get('skip_survey', False))
+
+
+def page_vars(player, heading, intro=''):
+    return dict(heading=heading, intro=intro, survey_optional=survey_optional(player))
 
 
 # PAGES
@@ -214,8 +229,15 @@ class SurveyPage(Page):
     template_name = 'mp_survey/SurveyPage.html'
 
     @staticmethod
-    def is_displayed(player):
-        return not survey_skipped(player)
+    def error_message(player, values):
+        if survey_optional(player):
+            return None
+        missing = {
+            f: 'Please answer this question.'
+            for f, v in values.items()
+            if f not in OPTIONAL_FIELDS and v in (None, '')
+        }
+        return missing or None
 
 
 class AboutTheGame(SurveyPage):
@@ -227,7 +249,7 @@ class AboutTheGame(SurveyPage):
 
     @staticmethod
     def vars_for_template(player):
-        return dict(heading='About the game', intro='')
+        return page_vars(player, 'About the game')
 
 
 class PartsAndOpponent(SurveyPage):
@@ -238,7 +260,7 @@ class PartsAndOpponent(SurveyPage):
 
     @staticmethod
     def vars_for_template(player):
-        return dict(heading='The two parts of the game', intro='')
+        return page_vars(player, 'The two parts of the game')
 
 
 class StrategyAndExperience(SurveyPage):
@@ -251,7 +273,7 @@ class StrategyAndExperience(SurveyPage):
 
     @staticmethod
     def vars_for_template(player):
-        return dict(heading='Your strategy and experience', intro='')
+        return page_vars(player, 'Your strategy and experience')
 
 
 class AQ10(SurveyPage):
@@ -259,7 +281,8 @@ class AQ10(SurveyPage):
 
     @staticmethod
     def vars_for_template(player):
-        return dict(
+        return page_vars(
+            player,
             heading='About you (1 of 3)',
             intro='Please indicate how much you agree with each statement.',
         )
@@ -270,7 +293,8 @@ class BISBrief(SurveyPage):
 
     @staticmethod
     def vars_for_template(player):
-        return dict(
+        return page_vars(
+            player,
             heading='About you (2 of 3)',
             intro='People differ in the ways they act and think in different situations. '
                   'Please indicate how often each statement applies to you.',
@@ -282,7 +306,8 @@ class GAD7(SurveyPage):
 
     @staticmethod
     def vars_for_template(player):
-        return dict(
+        return page_vars(
+            player,
             heading='About you (3 of 3)',
             intro='Over the last 2 weeks, how often have you been bothered by the following problems?',
         )
@@ -320,10 +345,6 @@ def save_payment_details(player, data):
 
 class Payment(Page):
     @staticmethod
-    def is_displayed(player):
-        return not survey_skipped(player)
-
-    @staticmethod
     def vars_for_template(player):
         # progress for lab-notes (same record matching_live keeps up to date)
         player.participant.vars["progress"] = dict(
@@ -332,6 +353,7 @@ class Payment(Page):
         return dict(
             participant_code=player.participant.code,
             collect_payment_details=bool(payment_public_key()),
+            survey_optional=survey_optional(player),
             payment_form_url=payment_form_url(player),
         )
 
@@ -348,7 +370,10 @@ page_sequence = [AboutTheGame, PartsAndOpponent, StrategyAndExperience, AQ10, BI
 def custom_export(players):
     """Encrypted payment submissions, for payment_crypto.py's decrypt step.
     Ciphertext only: unreadable without the private key."""
-    yield ['session_code', 'participant_code', 'participant_label', 'submitted_at', 'ciphertext']
+    yield ['session_code', 'participant_code', 'participant_label', 'test_run', 'submitted_at', 'ciphertext']
     for p in players:
         for row in PaymentDetails.filter(player=p):
-            yield [p.session.code, row.participant_code, p.participant.label or '', row.submitted_at, row.ciphertext]
+            yield [
+                p.session.code, row.participant_code, p.participant.label or '',
+                int(survey_optional(p)), row.submitted_at, row.ciphertext,
+            ]

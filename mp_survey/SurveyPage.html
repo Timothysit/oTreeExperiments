@@ -1,6 +1,10 @@
 {{ block title }}{{ heading }}{{ endblock }}
 {{ block content }}
 
+    {{ if survey_optional }}
+    <div class="alert alert-info">Test run: every question is optional, so you can click Next without answering.</div>
+    {{ endif }}
+
     {{ if intro }}<p>{{ intro }}</p>{{ endif }}
 
     {{ formfields }}

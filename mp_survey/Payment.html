@@ -8,6 +8,10 @@
         <code style="font-size: 1.2rem;">{{ participant_code }}</code>
     </p>
 
+    {{ if survey_optional }}
+    <div class="alert alert-info">Test run: you don't need to fill in the payment form; this is the last page.</div>
+    {{ endif }}
+
     {{ if collect_payment_details }}
     {# Inputs have no name attribute: they are sent only via liveSend (encrypted on the
        server), never posted as an oTree form. autocomplete off: the laptops are shared. #}

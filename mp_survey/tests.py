@@ -2,11 +2,12 @@
 
 Run with:
     uv run --with requests otree test matching_live_solo
+    uv run --with requests otree test matching_live_preset_test   # test run: all optional
 """
 import os
 from contextlib import contextmanager
 
-from otree.api import Bot, expect
+from otree.api import Bot, SubmissionMustFail, expect
 
 from . import *
 from .payment_crypto import (
@@ -35,8 +36,16 @@ def payment_key(public_b64):
 
 class PlayerBot(Bot):
     def play_round(self):
-        if survey_skipped(self.player):  # test run: no survey pages at all
+        if survey_optional(self.player):  # test run: every page can be submitted empty
+            expect('Test run', 'in', self.html)
+            for page in [AboutTheGame, PartsAndOpponent, StrategyAndExperience, AQ10, BISBrief, GAD7]:
+                yield page, {}
+            expect(self.player.field_maybe_none('interface_ease'), None)
+            expect('Test run', 'in', self.html)
+            check_payment_details_stored_encrypted(self.player, test_run=1)
             return
+        yield SubmissionMustFail(AboutTheGame, {})
+        yield SubmissionMustFail(AboutTheGame, dict(interface_ease='Very easy'))
         yield AboutTheGame, dict(
             interface_ease='Very easy',
             instructions_clear='Very clear',
@@ -70,10 +79,11 @@ class PlayerBot(Bot):
         expect(self.player.part2_opponent_belief, 'Another participant')
         expect(self.player.field_maybe_none('gad_difficulty'), None)
         expect('participant ID', 'in', self.html)
-        check_payment_details_stored_encrypted(self.player)
+        expect('Test run', 'not in', self.html)
+        check_payment_details_stored_encrypted(self.player, test_run=0)
 
 
-def check_payment_details_stored_encrypted(player):
+def check_payment_details_stored_encrypted(player, test_run):
     private_b64, public_b64 = generate_keypair()
     with payment_key(public_b64):
         bad = save_payment_details(player, dict(GOOD_DETAILS, sort_code='12'))
@@ -91,6 +101,12 @@ def check_payment_details_stored_encrypted(player):
     ))
     [header, exported] = list(custom_export([player]))
     expect(exported[header.index('ciphertext')], row.ciphertext)
+    expect(exported[header.index('test_run')], test_run)
+
+
+def test_optional_fields_are_player_fields():
+    for name in OPTIONAL_FIELDS:
+        expect(hasattr(Player, name), True)
 
 
 def test_payment_url_fills_in_code():

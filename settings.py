@@ -28,7 +28,7 @@ SESSION_CONFIGS = [
         # when the session is created, as lab-notes does, so the Setup page is skipped; and a
         # test run's skip_survey
         name='matching_live_preset_test',
-        display_name='(test) Matching Pennies, opponents set at creation, no survey',
+        display_name='(test) Matching Pennies, opponents set at creation, survey optional',
         app_sequence=['matching_live', 'mp_survey'],
         num_demo_participants=2,
         num_trials_single=30,
