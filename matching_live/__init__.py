@@ -801,7 +801,7 @@ class End(Page):
 
     @staticmethod
     def before_next_page(player: Player, timeout_happened):
-        survey = "mp_survey" in player.session.config["app_sequence"] and not player.session.config.get("skip_survey")
+        survey = "mp_survey" in player.session.config["app_sequence"]  # shown in test runs too (all optional)
         set_progress(player, "survey" if survey else "finished", points=player.total_points)
 
 page_sequence = [EyeCheck, Setup, WaitAfterSetup, Game, End]

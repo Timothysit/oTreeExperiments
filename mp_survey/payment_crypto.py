@@ -103,12 +103,13 @@ def _decrypt(args):
         private_b64 = f.read().strip()
     with open(args.export_csv, newline='') as f:
         rows = latest_per_participant(list(csv.DictReader(f)))
-    meta = ['session_code', 'participant_code', 'participant_label', 'submitted_at']
+    # test_run = 1: a lab-notes test session (questionnaire optional), not a participant to pay
+    meta = ['session_code', 'participant_code', 'participant_label', 'test_run', 'submitted_at']
     with open(args.out, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=meta + FIELDS)
         writer.writeheader()
         for row in sorted(rows, key=lambda r: float(r['submitted_at'])):
-            writer.writerow({**{k: row[k] for k in meta}, **decrypt_details(row['ciphertext'], private_b64)})
+            writer.writerow({**{k: row.get(k, '') for k in meta}, **decrypt_details(row['ciphertext'], private_b64)})
     print(f'{len(rows)} participants written to {args.out}')
 
 
