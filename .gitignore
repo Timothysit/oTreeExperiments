@@ -13,3 +13,7 @@ __pycache__/
 merge.ps1
 *.otreezip
 pupil_bridge/logs/
+
+# payment details: private key and decrypted payment sheets never go in git
+*.key
+payments*.csv

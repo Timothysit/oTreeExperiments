@@ -124,8 +124,9 @@ PAYMENT_FORM_URL = ""
 
 SESSION_CONFIG_DEFAULTS = dict(
     real_world_currency_per_point=1.00, participation_fee=0.00, doc="",
-    # Payment-only form linked from mp_survey's last page. Kept outside oTree so
-    # the research export never contains names / bank details.
+    # mp_survey collects payment details itself, encrypted, when the env var
+    # PAYMENT_PUBLIC_KEY is set (see mp_survey/payment_crypto.py). Without it, its
+    # last page links this external payment-only form instead.
     # {participant_code} is replaced with the participant's oTree code, so use a
     # Google Forms pre-filled link with that as the participant-ID answer.
     payment_form_url=PAYMENT_FORM_URL,

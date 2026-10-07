@@ -1,6 +1,9 @@
+import os
 import time
 
 from otree.api import *
+
+from .payment_crypto import clean_details, encrypt_details
 
 
 doc = """
@@ -8,9 +11,13 @@ Post-task questionnaire for matching_live, replacing the separate Google Form
 ("Course Evaluation (Responses)") used up to 2026-10.
 
 Answers are stored on the Player, so they join to the game data by
-participant.code automatically. Deliberately collects NO personal details:
-payment details go in a separate payment-only form (session config
-`payment_form_url`), keeping identities out of the research export.
+participant.code automatically. Deliberately collects NO personal details on
+the Player. Payment details (name, email, UK bank details) are entered on the
+last page, encrypted on the server with the public key in env var
+PAYMENT_PUBLIC_KEY, and stored as ciphertext only in the PaymentDetails table,
+which never appears in the research export (see payment_crypto.py for the
+payer's decrypt step). Without that key, the page falls back to linking an
+external payment form (session config `payment_form_url`).
 
 Answer text matches the old Google Form, so old and new responses can be
 pooled. Exceptions: the interface-ease question is now single-choice (the Form's
@@ -186,6 +193,16 @@ class Player(BasePlayer):
     )
 
 
+class PaymentDetails(ExtraModel):
+    """One row per submission of the payment form. `ciphertext` is the encrypted
+    JSON of payment_crypto.FIELDS; the plain text is never stored. Its own table, so
+    it stays out of oTree's standard exports and is created automatically on deploy."""
+    player = models.Link(Player)
+    participant_code = models.StringField()
+    ciphertext = models.LongStringField()
+    submitted_at = models.FloatField()
+
+
 def survey_skipped(player):
     """Test runs can skip the questionnaire: session config skip_survey (lab-notes sets it)."""
     return bool(player.session.config.get('skip_survey', False))
@@ -281,6 +298,26 @@ def payment_form_url(player):
     return url.replace('{participant_code}', player.participant.code)
 
 
+def payment_public_key():
+    return os.environ.get('PAYMENT_PUBLIC_KEY', '').strip()
+
+
+def save_payment_details(player, data):
+    """Live method of the Payment page: validate, encrypt, store. Replies with
+    the field errors, or ok. Plain-text details are never stored or logged."""
+    details, errors = clean_details(data)
+    if errors:
+        return dict(ok=False, errors=errors)
+    PaymentDetails.create(
+        player=player,
+        participant_code=player.participant.code,
+        ciphertext=encrypt_details(details, payment_public_key()),
+        submitted_at=time.time(),
+    )
+    player.participant.vars['payment_details_submitted'] = True
+    return dict(ok=True)
+
+
 class Payment(Page):
     @staticmethod
     def is_displayed(player):
@@ -294,8 +331,24 @@ class Payment(Page):
         )
         return dict(
             participant_code=player.participant.code,
+            collect_payment_details=bool(payment_public_key()),
             payment_form_url=payment_form_url(player),
         )
 
+    @staticmethod
+    def live_method(player, data):
+        if not payment_public_key():
+            return {player.id_in_group: dict(ok=False, errors=dict(form='Payment form is not set up.'))}
+        return {player.id_in_group: save_payment_details(player, data)}
+
 
 page_sequence = [AboutTheGame, PartsAndOpponent, StrategyAndExperience, AQ10, BISBrief, GAD7, Payment]
+
+
+def custom_export(players):
+    """Encrypted payment submissions, for payment_crypto.py's decrypt step.
+    Ciphertext only: unreadable without the private key."""
+    yield ['session_code', 'participant_code', 'participant_label', 'submitted_at', 'ciphertext']
+    for p in players:
+        for row in PaymentDetails.filter(player=p):
+            yield [p.session.code, row.participant_code, p.participant.label or '', row.submitted_at, row.ciphertext]
