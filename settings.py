@@ -133,6 +133,9 @@ SESSION_CONFIG_DEFAULTS = dict(
     # mp_lab laptops with a Pupil headset (comma-separated labels); only these send
     # annotations to the pupil bridge, see pupil_bridge/README.md
     pupil_bridge_labels="laptopA",
+    # free space the eye tracker check page asks for on the recordings drive; a full
+    # 400+400-trial session recorded 21-28 GB (May-July 2026), plus a margin
+    pupil_min_free_gb=35,
 )
 
 SESSION_CONFIG_CHOICES = dict(

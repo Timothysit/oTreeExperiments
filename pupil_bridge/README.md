@@ -24,6 +24,10 @@ background. For a `matching_live` session:
    size and samples/s for each eye. With the headset on the participant, switch
    to Pupil Capture (Alt+Tab) and adjust each eye camera until the pupil is
    tracked (confidence above 0.8, green), then click **Eye cameras OK, continue**.
+   The page also shows the free space on the drive Pupil Capture records to (its
+   Recorder folder, read from Pupil Capture's saved settings). Below the session
+   config's `pupil_min_free_gb` (default 35 GB; a full session recorded 21–28 GB)
+   the line turns red and only **Continue anyway** is offered.
 3. The participant's **Click anywhere to begin** starts the recording. The bridge
    checks that both eye cameras deliver pupil data and starts a recording named
    `<date>_<room label>_<participant code>`,

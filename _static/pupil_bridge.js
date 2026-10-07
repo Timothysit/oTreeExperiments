@@ -85,6 +85,17 @@
     };
   }
 
+  // For the eye check page: {ok: true, recordings_dir, free_gb, total_gb}.
+  async function diskSpace() {
+    try {
+      const response = await fetch(baseUrl + "/disk", { signal: AbortSignal.timeout(5000) });
+      const data = await response.json();
+      return response.ok ? { ok: true, ...data } : { ok: false, error: data.error };
+    } catch (err) {
+      return bridgeDown(err);
+    }
+  }
+
   // Starts the bridge through the pupilbridge: link type (pupil_bridge/install_windows.py).
   // Call it from a click: Chrome only opens such links on a user action, and asks
   // once whether to allow it. Resolves to {ok: true} once the bridge answers.
@@ -177,6 +188,7 @@
     stopRecording,
     startPupilCapture,
     eyeStats,
+    diskSpace,
     launchBridge,
     isEnabled: () => enabled,
   };

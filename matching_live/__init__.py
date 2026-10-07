@@ -728,7 +728,10 @@ class EyeCheck(Page):
 
     @staticmethod
     def js_vars(player):
-        return dict(pupil=pupil_js_vars(player, app="matching_live"))
+        return dict(
+            pupil=pupil_js_vars(player, app="matching_live"),
+            min_free_gb=player.session.config.get("pupil_min_free_gb", 35),
+        )
 
 
 class Setup(Page):
