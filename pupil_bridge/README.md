@@ -37,8 +37,13 @@ If the recording can't be started, the page says **The eye tracker is not
 recording. Please call the experimenter**, with the reason, and the game does
 not start; clicking again retries. Common reasons: headset unplugged, an eye
 window closed, Pupil Capture already recording (stop it by hand), or the
-bridge not running (start it with the "Pupil bridge" shortcut in the Startup
-folder, or `python pupil_bridge\pupil_bridge.py`).
+bridge not running.
+
+If the bridge isn't running, the eye tracker check page shows a **Start pupil
+bridge** button, and on the game page the next click starts it before retrying.
+Chrome asks "Open Pupil bridge?" the first time; tick "Always allow" for the
+experiment site. Other ways to start it: the "Pupil bridge" shortcut in the
+Startup folder (Win+R, `shell:startup`), or `python pupil_bridge\pupil_bridge.py`.
 
 Recording stays on during the Part 1/2 break. A page reload doesn't start a
 second recording.
@@ -56,16 +61,23 @@ on the headset laptop.
 The bridge only needs `pyzmq` and `msgpack`
 (`pip install -r pupil_bridge/requirements.txt`), which oTree's environment
 already has, so the same environment can run both (see below for creating it).
-Then, with that environment's Python, add the bridge to Windows startup:
+Then, with that environment's Python:
 
 ```
-python pupil_bridge\install_startup.py
+python pupil_bridge\install_windows.py
 ```
 
-This puts a "Pupil bridge" shortcut in your Startup folder that runs this
-repository's bridge with `pythonw` (no window). Double-click it to start the
-bridge now; `--remove` takes it out of Startup again. Only one bridge can run
-at a time: a second one exits with "Port 8765 is in use".
+This installs, for your Windows user only (no admin rights), two ways of
+starting this repository's bridge with `pythonw` (no window):
+
+- a "Pupil bridge" shortcut in your Startup folder, so it starts at login
+  (double-click it to start the bridge now);
+- the link type `pupilbridge:` (registry key
+  `HKEY_CURRENT_USER\Software\Classes\pupilbridge`), used by the **Start pupil
+  bridge** button in the pages.
+
+`--remove` undoes both. Only one bridge can run at a time: a second one exits
+with "Port 8765 is in use".
 
 The bridge must be run from this repository: an older copy elsewhere
 (e.g. `Documents\pupil_bridge`) is the previous version without these fixes.

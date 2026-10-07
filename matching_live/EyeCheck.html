@@ -25,6 +25,7 @@
 </p>
 
 <p id="pupil-status">Starting Pupil Capture...</p>
+<button type="button" id="launch-bridge" class="btn btn-warning" hidden>Start pupil bridge</button>
 
 <table class="eye-table table">
   <thead>
@@ -78,8 +79,17 @@
     cells[3].textContent = s.fps;
   }
 
+  const launchButton = document.getElementById("launch-bridge");
+  let polling = false;
+
   async function pollEyes() {
     const result = await PupilBridge.eyeStats();
+    if (result.bridgeDown) {
+      showStatus(result.error, true);
+      launchButton.hidden = false;
+      polling = false;
+      return;
+    }
     if (!result.ok) {
       showStatus("No data from Pupil Capture: " + result.error, true);
     } else {
@@ -93,14 +103,35 @@
     setTimeout(pollEyes, 300);  // each check itself takes about a second
   }
 
-  (async function () {
+  async function startPupilCapture() {
+    showStatus("Starting Pupil Capture...");
     const started = await PupilBridge.startPupilCapture();
     if (!started.ok) {
-      showStatus("Pupil Capture could not be started: " + started.error, true);
+      showStatus(started.bridgeDown ? started.error
+        : "Pupil Capture could not be started: " + started.error, true);
+      launchButton.hidden = !started.bridgeDown;
       return;
     }
-    pollEyes();
-  })();
+    launchButton.hidden = true;
+    if (!polling) {
+      polling = true;
+      pollEyes();
+    }
+  }
+
+  launchButton.addEventListener("click", async function () {
+    launchButton.disabled = true;
+    showStatus("Starting the pupil bridge...");
+    const launched = await PupilBridge.launchBridge();
+    launchButton.disabled = false;
+    if (!launched.ok) {
+      showStatus(launched.error, true);
+      return;
+    }
+    startPupilCapture();
+  });
+
+  startPupilCapture();
 </script>
 
 {{ endblock }}
