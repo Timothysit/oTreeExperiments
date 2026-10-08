@@ -36,7 +36,6 @@ SESSION_CONFIGS = [
         opponent_laptopA='algo_A',
         opponent_laptopB='algo_B',
         skip_survey=True,
-        consent_pages=True,
     ),
     dict(
         name='guess_two_thirds',
@@ -132,9 +131,9 @@ SESSION_CONFIG_DEFAULTS = dict(
     # Google Forms pre-filled link with that as the participant-ID answer.
     payment_form_url=PAYMENT_FORM_URL,
     # consent app (see consent/__init__.py): consent_pages shows the information
-    # sheet and consent form before the game; off for now, paper copies are used.
+    # sheet and consent form before the game; False to use paper copies instead.
     # digital_consent=False would show the information sheet only.
-    consent_pages=False,
+    consent_pages=True,
     digital_consent=True,
     # who countersigns the digital consent form (lab-notes can set it per session)
     researcher_name="Timothy Sit",
