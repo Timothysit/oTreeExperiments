@@ -14,9 +14,8 @@ doc = """
 Before the game: the Participant Information Sheet (InfoSheetText.html), with
 the option to have it emailed (see emailer.py; the address is then kept,
 encrypted, for mp_survey's payment form, so they aren't asked twice), then the
-Consent Form ticked and signed on screen. Session config consent_pages turns
-the app on (off by default for now: paper copies); digital_consent=False then
-skips just the form.
+Consent Form ticked and signed on screen. Session config consent_pages=False
+skips the app (paper copies); digital_consent=False skips just the form.
 
 Signing needs PAYMENT_PUBLIC_KEY on the server: the typed name
 is encrypted with the same public key as the payment details
@@ -168,7 +167,7 @@ def is_test_run(player):
 
 def consent_pages(player):
     """Session config `consent_pages`: show this app at all (off: paper copies)."""
-    return bool(player.session.config.get('consent_pages', False))
+    return bool(player.session.config.get('consent_pages', True))
 
 
 def digital_consent(player):

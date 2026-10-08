@@ -1,7 +1,7 @@
 """Bot test for consent.
 
 Run with:
-    uv run --with requests otree test matching_live_solo          # consent pages off
+    uv run --with requests otree test matching_live_solo          # consent required
     uv run --with requests otree test matching_live_preset_test   # test run: consent optional
 """
 import os
