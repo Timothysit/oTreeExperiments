@@ -17,7 +17,8 @@
        server), never posted as an oTree form. autocomplete off: the laptops are shared. #}
     <div id="payment-form">
         <p>
-            To get paid, please enter your details below. They are encrypted as soon as they reach
+            To get paid, please enter your details below (UCL's payment form needs your address
+            and bank details). They are encrypted as soon as they reach
             our server and are used only to pay you; they are kept separately from your answers.
         </p>
         <div class="mb-3">
@@ -48,6 +49,31 @@
                    placeholder="12345678" maxlength="10" style="max-width: 12rem;">
             <div class="invalid-feedback" id="err-account_number"></div>
         </div>
+        <div class="mb-3">
+            <label class="form-label" for="pay-address_line1">Address line 1</label>
+            <input class="form-control" id="pay-address_line1" autocomplete="off" maxlength="100">
+            <div class="invalid-feedback" id="err-address_line1"></div>
+        </div>
+        <div class="mb-3">
+            <label class="form-label" for="pay-address_line2">Address line 2 (optional)</label>
+            <input class="form-control" id="pay-address_line2" autocomplete="off" maxlength="100">
+            <div class="invalid-feedback" id="err-address_line2"></div>
+        </div>
+        <div class="mb-3">
+            <label class="form-label" for="pay-town">Town or city</label>
+            <input class="form-control" id="pay-town" autocomplete="off" maxlength="60" style="max-width: 20rem;">
+            <div class="invalid-feedback" id="err-town"></div>
+        </div>
+        <div class="mb-3">
+            <label class="form-label" for="pay-postcode">Postcode</label>
+            <input class="form-control" id="pay-postcode" autocomplete="off" maxlength="10" style="max-width: 12rem;" placeholder="WC1E 6BT">
+            <div class="invalid-feedback" id="err-postcode"></div>
+        </div>
+        <div class="mb-3">
+            <label class="form-label" for="pay-bank_name">Bank name</label>
+            <input class="form-control" id="pay-bank_name" autocomplete="off" maxlength="60" style="max-width: 20rem;">
+            <div class="invalid-feedback" id="err-bank_name"></div>
+        </div>
         <div class="alert alert-danger" id="err-form" style="display: none;"></div>
         <button type="button" class="btn btn-primary btn-lg" id="pay-submit">Submit payment details</button>
     </div>
@@ -73,7 +99,8 @@
 {{ block scripts }}
 {{ if collect_payment_details }}
 <script>
-    const PAY_FIELDS = ['full_name', 'email', 'sort_code', 'account_number'];
+    const PAY_FIELDS = ['full_name', 'email', 'sort_code', 'account_number',
+                        'address_line1', 'address_line2', 'town', 'postcode', 'bank_name'];
     const payButton = document.getElementById('pay-submit');
     const otherEmail = document.getElementById('use-other-email');
     if (otherEmail) otherEmail.addEventListener('click', function (e) {

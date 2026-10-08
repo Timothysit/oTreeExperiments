@@ -28,7 +28,15 @@ import sys
 
 from nacl.public import PrivateKey, PublicKey, SealedBox
 
-FIELDS = ['full_name', 'email', 'sort_code', 'account_number']
+# the UCL expense form's payee fields (lab-notes fills the form from these); address_line2
+# is optional, and submissions before 2026-10-09 have only the first four
+FIELDS = [
+    'full_name', 'email', 'sort_code', 'account_number',
+    'address_line1', 'address_line2', 'town', 'postcode', 'bank_name',
+]
+REQUIRED_TEXT = dict(address_line1=('address', 100), town=('town or city', 60), bank_name=('bank name', 60))
+# UK postcode, loosely (outward code, then inward digit + two letters)
+_POSTCODE = re.compile(r'^([A-Z]{1,2}\d[A-Z\d]?)\s*(\d[A-Z]{2})$')
 
 _EMAIL = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 
@@ -59,6 +67,18 @@ def clean_details(raw, email_on_file=False):
         errors['sort_code'] = 'Sort code should be 6 digits, e.g. 12-34-56.'
     if not re.fullmatch(r'\d{8}', details['account_number']):
         errors['account_number'] = 'Account number should be 8 digits.'
+    for f, (what, limit) in REQUIRED_TEXT.items():
+        if not details[f]:
+            errors[f] = f'Please enter your {what}.'
+        elif len(details[f]) > limit:
+            errors[f] = f'That {what} is too long.'
+    if len(details['address_line2']) > 100:
+        errors['address_line2'] = 'That address line is too long.'
+    m = _POSTCODE.match(details['postcode'].upper())
+    if m:
+        details['postcode'] = f'{m[1]} {m[2]}'
+    else:
+        errors['postcode'] = 'Please enter a UK postcode, e.g. WC1E 6BT.'
     return details, errors
 
 
