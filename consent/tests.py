@@ -1,7 +1,7 @@
 """Bot test for consent.
 
 Run with:
-    uv run --with requests otree test matching_live_solo          # consent required
+    uv run --with requests otree test matching_live_solo          # consent pages off
     uv run --with requests otree test matching_live_preset_test   # test run: consent optional
 """
 import os
@@ -32,6 +32,9 @@ class FakeSender:
 
 class PlayerBot(Bot):
     def play_round(self):
+        if not consent_pages(self.player):
+            expect(self.player.field_maybe_none('consent_signed_at'), None)
+            return
         expect('Participant Information Sheet', 'in', self.html)
         expect('Local Data Protection Privacy Notice', 'in', self.html)
         # demo participants have no laptop label, so count as on the headset laptop

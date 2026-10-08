@@ -26,7 +26,7 @@ SESSION_CONFIGS = [
     dict(
         # bot test only (otree test matching_live_preset_test): opponents per laptop label set
         # when the session is created, as lab-notes does, so the Setup page is skipped; and a
-        # test run's skip_survey (consent form shown, every box optional)
+        # test run's skip_survey (consent pages shown, every box optional)
         name='matching_live_preset_test',
         display_name='(test) Matching Pennies, opponents set at creation, survey optional',
         app_sequence=['consent', 'matching_live', 'mp_survey'],
@@ -36,6 +36,7 @@ SESSION_CONFIGS = [
         opponent_laptopA='algo_A',
         opponent_laptopB='algo_B',
         skip_survey=True,
+        consent_pages=True,
     ),
     dict(
         name='guess_two_thirds',
@@ -130,8 +131,10 @@ SESSION_CONFIG_DEFAULTS = dict(
     # {participant_code} is replaced with the participant's oTree code, so use a
     # Google Forms pre-filled link with that as the participant-ID answer.
     payment_form_url=PAYMENT_FORM_URL,
-    # consent app: participants sign the consent form on screen; False for paper
-    # consent instead (see consent/__init__.py)
+    # consent app (see consent/__init__.py): consent_pages shows the information
+    # sheet and consent form before the game; off for now, paper copies are used.
+    # digital_consent=False would show the information sheet only.
+    consent_pages=False,
     digital_consent=True,
     # who countersigns the digital consent form (lab-notes can set it per session)
     researcher_name="Timothy Sit",
