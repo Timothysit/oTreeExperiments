@@ -4,6 +4,7 @@ Run with:
     uv run --with requests otree test matching_live_solo
     uv run --with requests otree test matching_live_preset_test   # test run: all optional
 """
+import csv
 import os
 from contextlib import contextmanager
 
@@ -134,6 +135,36 @@ def test_clean_details_flags_each_bad_field():
     expect(sorted(errors), ['account_number', 'email', 'full_name', 'sort_code'])
     _, errors = clean_details(None)
     expect(len(errors), 4)
+    # email already given on the information sheet page: blank is fine, a typo isn't
+    _, errors = clean_details(dict(GOOD_DETAILS, email=''), email_on_file=True)
+    expect(errors, {})
+    _, errors = clean_details(dict(GOOD_DETAILS, email='nope'), email_on_file=True)
+    expect(list(errors), ['email'])
+
+
+def test_decrypt_fills_in_email_given_earlier(tmp_path=None):
+    import tempfile
+    from pathlib import Path
+    from .payment_crypto import main
+    private_b64, public_b64 = generate_keypair()
+    d = Path(tmp_path or tempfile.mkdtemp())
+    (d / 'key').write_text(private_b64)
+    meta = dict(session_code='s', participant_label='', test_run='0', submitted_at='1.0')
+    rows = [
+        dict(meta, participant_code='a', email_ciphertext=encrypt_details(dict(email='a@x.org'), public_b64),
+             ciphertext=encrypt_details(dict(GOOD_DETAILS, email=''), public_b64)),
+        dict(meta, participant_code='b', email_ciphertext='',
+             ciphertext=encrypt_details(GOOD_DETAILS, public_b64)),
+    ]
+    with open(d / 'export.csv', 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    main(['decrypt', str(d / 'export.csv'), '--key', str(d / 'key'), '--out', str(d / 'out.csv')])
+    with open(d / 'out.csv', newline='') as f:
+        out = {r['participant_code']: r for r in csv.DictReader(f)}
+    expect(out['a']['email'], 'a@x.org')
+    expect(out['b']['email'], 'ada@example.com')
 
 
 def test_encryption_round_trip_needs_the_private_key():

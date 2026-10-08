@@ -5,7 +5,7 @@ SESSION_CONFIGS = [
     dict(
         name='matching_live',
         display_name='Matching Pennies (live)',
-        app_sequence=['matching_live', 'mp_survey'],
+        app_sequence=['consent', 'matching_live', 'mp_survey'],
         num_demo_participants=2,
         num_trials_single=400,
         num_trials_multi=400,
@@ -13,7 +13,7 @@ SESSION_CONFIGS = [
     dict(
         name='matching_live_solo',
         display_name='Matching Pennies (solo — no-switch control)',
-        app_sequence=['matching_live', 'mp_survey'],
+        app_sequence=['consent', 'matching_live', 'mp_survey'],
         num_demo_participants=1,
         num_trials_single=400,
         num_trials_multi=400,
@@ -26,10 +26,10 @@ SESSION_CONFIGS = [
     dict(
         # bot test only (otree test matching_live_preset_test): opponents per laptop label set
         # when the session is created, as lab-notes does, so the Setup page is skipped; and a
-        # test run's skip_survey
+        # test run's skip_survey (consent form shown, every box optional)
         name='matching_live_preset_test',
         display_name='(test) Matching Pennies, opponents set at creation, survey optional',
-        app_sequence=['matching_live', 'mp_survey'],
+        app_sequence=['consent', 'matching_live', 'mp_survey'],
         num_demo_participants=2,
         num_trials_single=30,
         num_trials_multi=30,
@@ -130,6 +130,11 @@ SESSION_CONFIG_DEFAULTS = dict(
     # {participant_code} is replaced with the participant's oTree code, so use a
     # Google Forms pre-filled link with that as the participant-ID answer.
     payment_form_url=PAYMENT_FORM_URL,
+    # consent app: participants sign the consent form on screen; False for paper
+    # consent instead (see consent/__init__.py)
+    digital_consent=True,
+    # who countersigns the digital consent form (lab-notes can set it per session)
+    researcher_name="Timothy Sit",
     # mp_lab laptops with a Pupil headset (comma-separated labels); only these send
     # annotations to the pupil bridge, see pupil_bridge/README.md
     pupil_bridge_labels="laptopA",

@@ -33,11 +33,13 @@ FIELDS = ['full_name', 'email', 'sort_code', 'account_number']
 _EMAIL = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 
 
-def clean_details(raw):
+def clean_details(raw, email_on_file=False):
     """Normalise and validate the submitted form.
 
     Returns (details, errors): details has every field in FIELDS (sort code and
     account number reduced to digits); errors maps field -> message, empty if valid.
+    email_on_file: the participant gave their email earlier (see email_ciphertext),
+    so a blank email is fine.
     """
     raw = raw if isinstance(raw, dict) else {}
     details = {f: str(raw.get(f) or '').strip() for f in FIELDS}
@@ -49,7 +51,9 @@ def clean_details(raw):
         errors['full_name'] = 'Please enter your name.'
     elif len(details['full_name']) > 100:
         errors['full_name'] = 'Name is too long.'
-    if not _EMAIL.match(details['email']) or len(details['email']) > 200:
+    if email_on_file and not details['email']:
+        pass
+    elif not _EMAIL.match(details['email']) or len(details['email']) > 200:
         errors['email'] = 'Please enter a valid email address.'
     if not re.fullmatch(r'\d{6}', details['sort_code']):
         errors['sort_code'] = 'Sort code should be 6 digits, e.g. 12-34-56.'
@@ -105,11 +109,21 @@ def _decrypt(args):
         rows = latest_per_participant(list(csv.DictReader(f)))
     # test_run = 1: a lab-notes test session (questionnaire optional), not a participant to pay
     meta = ['session_code', 'participant_code', 'participant_label', 'test_run', 'submitted_at']
+    rows = sorted(rows, key=lambda r: float(r['submitted_at']))
+    decrypted = [decrypt_details(row['ciphertext'], private_b64) for row in rows]
+    for row, details in zip(rows, decrypted):
+        # email given on the consent app's information sheet page instead of the payment form
+        if row.get('email_ciphertext') and not details.get('email'):
+            details['email'] = decrypt_details(row['email_ciphertext'], private_b64)['email']
+    # payment details have FIELDS; other encrypted records (consent's export) their own keys
+    fields = list(FIELDS) if all(set(d) <= set(FIELDS) for d in decrypted) else list(dict.fromkeys(
+        k for d in decrypted for k in d
+    ))
     with open(args.out, 'w', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=meta + FIELDS)
+        writer = csv.DictWriter(f, fieldnames=meta + fields)
         writer.writeheader()
-        for row in sorted(rows, key=lambda r: float(r['submitted_at'])):
-            writer.writerow({**{k: row.get(k, '') for k in meta}, **decrypt_details(row['ciphertext'], private_b64)})
+        for row, details in zip(rows, decrypted):
+            writer.writerow({**{k: row.get(k, '') for k in meta}, **details})
     print(f'{len(rows)} participants written to {args.out}')
 
 

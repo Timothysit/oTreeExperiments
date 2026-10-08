@@ -1,0 +1,112 @@
+{{ block title }}Consent Form{{ endblock }}
+{{ block content }}
+
+    {{ if not_set_up }}
+    <div class="alert alert-danger">
+        Digital consent is not set up on this server (PAYMENT_PUBLIC_KEY is missing).
+        {{ if test_run }}Test run: you can continue without signing.{{ else }}Please use the paper consent form.{{ endif }}
+    </div>
+    {{ elif test_run }}
+    <div class="alert alert-info">Test run: every box is optional.</div>
+    {{ endif }}
+
+    {# worded as consent_form_Tim.pdf; the statements are C.STATEMENTS #}
+    <p class="text-center fw-bold">CONSENT FORM FOR ADULT PARTICIPANTS IN RESEARCH STUDIES</p>
+    <p>
+        Please complete this form after you have read the Information Sheet and/or listened to an explanation
+        about the research.
+    </p>
+    <dl class="small">
+        <dt>Title of Study:</dt>
+        <dd>{{ C.STUDY_TITLE }}</dd>
+        <dt>Department:</dt>
+        <dd>Psychology and Language Sciences (PaLS)</dd>
+        <dt>Name and Contact Details of the Researcher(s):</dt>
+        <dd>
+            Timothy Sit, tim.sit.18@ucl.ac.uk; Julia Nicklaus: julia.nicklaus.25@ucl.ac.uk;
+            Ann Duan, c.duan@ucl.ac.uk
+        </dd>
+        <dt>Name and Contact Details of the Principal Researcher:</dt>
+        <dd>Essi Viding, e.viding@ucl.ac.uk</dd>
+        <dt>Name and Contact Details of the UCL Data Protection Officer:</dt>
+        <dd>Alexandra Potts, data-protection@ucl.ac.uk</dd>
+    </dl>
+    <p>
+        This study has been approved by the UCL Research Ethics Committee: Project ID number: {{ C.ETHICS_ID }}
+    </p>
+    <p>
+        Thank you for considering taking part in this research. The person organising the research must
+        explain the project to you before you agree to take part. If you have any questions arising from the
+        Information Sheet or explanation already given to you, please ask the researcher before you decide
+        whether to join in. You will be given a copy of this Consent Form to keep and refer to at any time.
+        <a href="{{ static consent_form_pdf }}" target="_blank" rel="noopener">Consent form as PDF</a>
+    </p>
+
+    <p class="fw-bold">
+        I confirm that I understand that by ticking each box below I am consenting to this element of the study.
+        I understand that it will be assumed that unticked boxes means that I DO NOT consent to that part of the
+        study. I understand that by not giving consent for any one element that I may be deemed ineligible for
+        the study.
+    </p>
+
+    {{ for s in statements }}
+    <div class="form-check border rounded p-3 ps-5 mb-2">
+        <input class="form-check-input" type="checkbox" name="{{ s.field }}" id="id_{{ s.field }}"
+               {{ if not s.optional }}data-required{{ endif }}>
+        <label class="form-check-label" for="id_{{ s.field }}">
+            <strong>{{ s.number }}.</strong>
+            {{ for p in s.paragraphs }}{{ p }}<br>{{ endfor }}
+            {{ if s.bullets }}<ul class="mb-0">{{ for b in s.bullets }}<li>{{ b }}</li>{{ endfor }}</ul>{{ endif }}
+            {{ if s.optional }}<span class="badge bg-secondary">Optional</span>{{ endif }}
+        </label>
+        {{ formfield_errors s.field }}
+        <div class="form-control-errors js-error" style="display: none;">Please tick this box to take part.</div>
+    </div>
+    {{ endfor }}
+
+    <p class="mt-4">
+        If you would like your contact details to be retained so that you can be contacted in the future by UCL
+        researchers who would like to invite you to participate in follow up studies to this project, or in
+        future studies of a similar nature, please choose below.
+    </p>
+    {{ formfield 'future_contact' label='' }}
+
+    <div class="mb-3 mt-4" style="max-width: 32rem;">
+        <label class="form-label" for="id_signed_name">Name of participant (typing your name signs this form)</label>
+        <input class="form-control" type="text" name="signed_name" id="id_signed_name" maxlength="100" autocomplete="off">
+        {{ formfield_errors 'signed_name' }}
+        <div class="form-text">Date: {{ today }}</div>
+    </div>
+
+    <div class="mb-4" style="max-width: 32rem;">
+        <label class="form-label" for="researcher-signature">Researcher</label>
+        <input class="form-control" id="researcher-signature" value="{{ researcher }}" readonly>
+        <div class="form-text">Date: {{ today }}</div>
+    </div>
+
+    <div class="alert alert-warning" id="incomplete" style="display: none;">
+        To take part, please tick every box except the optional one, choose an answer about future contact,
+        and type your name. If you would rather not agree to something, please speak to the experimenter.
+    </div>
+    <button class="otree-btn-next btn btn-primary btn-lg">Sign and continue</button>
+
+{{ endblock }}
+
+{{ block scripts }}
+{{ if not test_run }}
+<script>
+    // Checked here so an incomplete form keeps its ticks; the server checks again.
+    document.getElementById('form').addEventListener('submit', function (e) {
+        let ok = true;
+        for (const box of document.querySelectorAll('input[data-required]')) {
+            box.parentElement.querySelector('.js-error').style.display = box.checked ? 'none' : '';
+            if (!box.checked) ok = false;
+        }
+        if (!document.querySelector('input[name="future_contact"]:checked')) ok = false;
+        if (!document.getElementById('id_signed_name').value.trim()) ok = false;
+        document.getElementById('incomplete').style.display = ok ? 'none' : '';
+        if (!ok) e.preventDefault();
+    });
+</script>
+{{ endif }}
+{{ endblock }}
