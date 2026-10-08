@@ -16,7 +16,9 @@ from .payment_crypto import (
 )
 
 GOOD_DETAILS = dict(
-    full_name='Ada Lovelace', email='ada@example.com', sort_code='12-34-56', account_number='1234 5678'
+    full_name='Ada Lovelace', email='ada@example.com', sort_code='12-34-56', account_number='1234 5678',
+    address_line1='1 Example Street', address_line2='', town='London', postcode='wc1e  6bt',
+    bank_name='Example Bank',
 )
 
 
@@ -98,8 +100,12 @@ def check_payment_details_stored_encrypted(player, test_run):
     for secret in ['Lovelace', 'ada@example.com', '123456', '12345678']:
         expect(secret, 'not in', row.ciphertext)
     expect(decrypt_details(row.ciphertext, private_b64), dict(
-        full_name='Ada Lovelace', email='ada@example.com', sort_code='123456', account_number='12345678'
+        full_name='Ada Lovelace', email='ada@example.com', sort_code='123456', account_number='12345678',
+        address_line1='1 Example Street', address_line2='', town='London', postcode='WC1E 6BT',
+        bank_name='Example Bank',
     ))
+    # lab-notes reads the latest ciphertext through the REST API (participant vars only)
+    expect(player.participant.vars['payment_ciphertext'], row.ciphertext)
     [header, exported] = list(custom_export([player]))
     expect(exported[header.index('ciphertext')], row.ciphertext)
     expect(exported[header.index('test_run')], test_run)
@@ -131,10 +137,16 @@ def test_clean_details_flags_each_bad_field():
     expect(errors, {})
     expect(details['sort_code'], '123456')
     expect(details['account_number'], '12345678')
-    _, errors = clean_details(dict(full_name=' ', email='nope', sort_code='12345a', account_number='1234567'))
-    expect(sorted(errors), ['account_number', 'email', 'full_name', 'sort_code'])
+    expect(details['postcode'], 'WC1E 6BT')
+    _, errors = clean_details(dict(GOOD_DETAILS, full_name=' ', email='nope', sort_code='12345a',
+                                   account_number='1234567', postcode='12345', bank_name='', town='',
+                                   address_line1=''))
+    expect(sorted(errors), ['account_number', 'address_line1', 'bank_name', 'email', 'full_name',
+                            'postcode', 'sort_code', 'town'])
     _, errors = clean_details(None)
-    expect(len(errors), 4)
+    expect(len(errors), 8)  # all but address line 2
+    for postcode in ['SW1A 1AA', 'm1 1ae', 'B33 8TH', 'CR2 6XH', 'DN55 1PT', 'EC1A1BB']:
+        expect(clean_details(dict(GOOD_DETAILS, postcode=postcode))[1], {})
     # email already given on the information sheet page: blank is fine, a typo isn't
     _, errors = clean_details(dict(GOOD_DETAILS, email=''), email_on_file=True)
     expect(errors, {})

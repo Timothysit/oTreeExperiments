@@ -676,11 +676,13 @@ def _game_progress(player):
     pv = player.participant.vars
     if done < n_single:
         return dict(stage="part1", trial=done, of=n_single, points=player.total_points)
+    # from the break on, Part 1's points too: lab-notes pays each part separately
+    points = dict(points=player.total_points, part1_points=player.part1_points)
     if done == n_single and not pv.get("part2_started"):
-        return dict(stage="break", trial=0, of=n_multi, points=player.total_points)
+        return dict(stage="break", trial=0, of=n_multi, **points)
     if done >= n_single + n_multi:
-        return dict(stage="game_done", trial=n_multi, of=n_multi, points=player.total_points)
-    return dict(stage="part2", trial=done - n_single, of=n_multi, points=player.total_points)
+        return dict(stage="game_done", trial=n_multi, of=n_multi, **points)
+    return dict(stage="part2", trial=done - n_single, of=n_multi, **points)
 
 
 def _at_part2_start(player):
@@ -805,7 +807,10 @@ class End(Page):
     @staticmethod
     def before_next_page(player: Player, timeout_happened):
         survey = "mp_survey" in player.session.config["app_sequence"]  # shown in test runs too (all optional)
-        set_progress(player, "survey" if survey else "finished", points=player.total_points)
+        set_progress(
+            player, "survey" if survey else "finished",
+            points=player.total_points, part1_points=player.part1_points,
+        )
 
 page_sequence = [EyeCheck, Setup, WaitAfterSetup, Game, End]
 

@@ -341,13 +341,17 @@ def save_payment_details(player, data):
     details, errors = clean_details(data, email_on_file=bool(email_on_file(player)))
     if errors:
         return dict(ok=False, errors=errors)
+    ciphertext = encrypt_details(details, payment_public_key())
     PaymentDetails.create(
         player=player,
         participant_code=player.participant.code,
-        ciphertext=encrypt_details(details, payment_public_key()),
+        ciphertext=ciphertext,
         submitted_at=time.time(),
     )
     player.participant.vars['payment_details_submitted'] = True
+    # the latest submission, for lab-notes (REST get_session returns participant vars only);
+    # still ciphertext, like email_ciphertext
+    player.participant.vars['payment_ciphertext'] = ciphertext
     return dict(ok=True)
 
 

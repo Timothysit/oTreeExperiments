@@ -80,11 +80,14 @@ def call_live_method(method, group, page_class, **kwargs):
         if trial == 0:
             expect(players[0].participant.vars["progress"]["stage"], "part1")
 
+    log = json.loads(group.trial_log_json)
     for p in players:
         prog = p.participant.vars["progress"]
         expect((prog["stage"], prog["trial"], prog["of"]), ("game_done", n_multi, n_multi))
+        # lab-notes works out the participant's pay from Part 1 and Part 2 points separately
+        part1 = sum(r["reward"] for r in log if r["block"] == "single" and r["player_code"] == p.participant.code)
+        expect((prog["part1_points"], prog["points"]), (part1, p.total_points))
 
-    log = json.loads(group.trial_log_json)
     expect(len(log), (n_single + n_multi) if solo else (n_single * len(players) + n_multi))
 
     single_rows = [r for r in log if r["block"] == "single"]
