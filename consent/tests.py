@@ -57,12 +57,18 @@ class PlayerBot(Bot):
                 yield SubmissionMustFail(ConsentForm, signed)
         # set for the rest of the bot run (only ever runs under `otree test`)
         os.environ['PAYMENT_PUBLIC_KEY'] = PUBLIC_KEY
+        # the address for a signed copy, handed over as they press Sign
+        code = self.player.participant.code
+        expect(copy_address(self.player, dict(copy_email='nope'))['ok'], False)
+        expect(copy_address(self.player, dict(copy_email=' ada@example.com ')), dict(ok=True))
+        expect(emailer.recall_address(code), 'ada@example.com')
         if not is_test_run(self.player):
             # a browser sends nothing for an unticked box
             yield SubmissionMustFail(ConsentForm, {k: v for k, v in signed.items() if k != 'consent_15'})
             yield SubmissionMustFail(ConsentForm, dict(signed, signed_name=' '))
         yield ConsentForm, signed
         expect(self.player.signed_name, '')
+        expect(emailer.recall_address(code), '')  # dropped once signed (no SMTP in tests, so not sent)
         expect(self.player.consent_01, True)
         expect(self.player.consent_11, False)
         [row] = ConsentRecord.filter(player=self.player)
@@ -74,6 +80,19 @@ class PlayerBot(Bot):
         expect(record['researcher'], 'Timothy Sit')
         [header, exported] = list(custom_export([self.player]))
         expect(exported[header.index('ciphertext')], row.ciphertext)
+        check_signed_copy(self.player, record)
+
+
+def check_signed_copy(player, record):
+    send = FakeSender()
+    expect(email_signed_copy(player, record, '', SMTP, send), False)
+    expect(email_signed_copy(player, record, 'ada@example.com', SMTP, send), True)
+    [msg] = send.sent
+    expect(msg['To'], 'ada@example.com')
+    attachments = {part.get_filename(): part.get_content() for part in msg.iter_attachments()}
+    expect(sorted(attachments), ['information_sheet.pdf', 'signed_consent_form.pdf'])
+    expect(attachments['signed_consent_form.pdf'][:4], b'%PDF')
+    expect(decrypt_details(player.participant.vars['email_ciphertext'], PRIVATE_KEY), dict(email='ada@example.com'))
 
 
 def check_emailing(player):
@@ -137,6 +156,51 @@ def test_background_send_reports_status():
     expect(emailer.status('k'), emailer.SENDING)  # the fake never reports back
 
 
+def test_remembered_address_expires():
+    emailer.remember_address('p1', 'a@b.co', now=1000)
+    expect(emailer.recall_address('p1', now=1000 + emailer.ADDRESS_TTL), 'a@b.co')
+    expect(emailer.recall_address('p1', now=1001 + emailer.ADDRESS_TTL), '')
+    emailer.forget_address('p1')
+    expect(emailer.recall_address('p1', now=1000), '')
+
+
 def test_documents_exist():
     for name in ['information_sheet.pdf', 'consent_form.pdf']:
         expect((C.DOCS_DIR / name).read_bytes()[:4], b'%PDF')
+
+
+def make_record(name='Zoë Łukasiewicz-Ng', signed_at='2026-10-08 16:38:12 UTC'):
+    return dict(full_name=name, signed_at=signed_at, future_contact=C.FUTURE_CONTACT[0],
+                researcher='Timothy Sit', **{f: f != 'consent_11' for f in STATEMENT_FIELDS})
+
+
+def test_signed_form_renders_any_european_name():
+    from .signed_form import render_signed_form, signed_date
+    expect(render_signed_form(make_record(), 'abc')[:4], b'%PDF')
+    expect(signed_date(make_record()), '8 October 2026')
+
+
+def test_archive_writes_one_pdf_per_real_participant(tmp_path=None):
+    import csv
+    import tempfile
+    from pathlib import Path
+    from mp_survey.payment_crypto import encrypt_details
+    from .signed_form import archive
+    d = Path(tmp_path or tempfile.mkdtemp())
+    rows = [  # p1 signed twice (latest wins), p2 is a test run
+        dict(participant_code='p1', test_run='0', submitted_at='1.0',
+             ciphertext=encrypt_details(make_record('Old'), PUBLIC_KEY)),
+        dict(participant_code='p1', test_run='0', submitted_at='2.0',
+             ciphertext=encrypt_details(make_record('Ada'), PUBLIC_KEY)),
+        dict(participant_code='p2', test_run='1', submitted_at='3.0',
+             ciphertext=encrypt_details(make_record('Test'), PUBLIC_KEY)),
+    ]
+    with open(d / 'export.csv', 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    written, existing = archive(d / 'export.csv', PRIVATE_KEY, d / 'forms')
+    expect([p.name for p in written], ['2026-10-08_p1_consent.pdf'])
+    expect(existing, [])
+    written, existing = archive(d / 'export.csv', PRIVATE_KEY, d / 'forms')  # re-run: nothing new
+    expect((len(written), len(existing)), (0, 1))

@@ -84,6 +84,18 @@
         <div class="form-text">Date: {{ today }}</div>
     </div>
 
+    {{ if can_email }}
+    {# no name attribute: sent via liveSend as they press Sign and kept only in the
+       server's memory until the copy is sent, never stored. autocomplete off: shared laptops. #}
+    <div class="mb-4" style="max-width: 32rem;">
+        <label class="form-label" for="copy-email">Email me a copy of this signed form (optional)</label>
+        <input class="form-control" id="copy-email" type="email" maxlength="200" autocomplete="off"
+               value="{{ copy_email }}" placeholder="you@example.com">
+        <div class="form-control-errors" id="copy-email-error" style="display: none;"></div>
+        <div class="form-text">Leave blank if you don't want a copy.</div>
+    </div>
+    {{ endif }}
+
     <div class="alert alert-warning" id="incomplete" style="display: none;">
         To take part, please tick every box except the optional one, choose an answer about future contact,
         and type your name. If you would rather not agree to something, please speak to the experimenter.
@@ -93,10 +105,15 @@
 {{ endblock }}
 
 {{ block scripts }}
-{{ if not test_run }}
 <script>
+    const form = document.getElementById('form');
+    const copyEmail = document.getElementById('copy-email');
+    const copyError = document.getElementById('copy-email-error');
+    const signButton = document.querySelector('.otree-btn-next');
+
     // Checked here so an incomplete form keeps its ticks; the server checks again.
-    document.getElementById('form').addEventListener('submit', function (e) {
+    function complete() {
+        {{ if test_run }}return true;{{ endif }}
         let ok = true;
         for (const box of document.querySelectorAll('input[data-required]')) {
             box.parentElement.querySelector('.js-error').style.display = box.checked ? 'none' : '';
@@ -105,8 +122,31 @@
         if (!document.querySelector('input[name="future_contact"]:checked')) ok = false;
         if (!document.getElementById('id_signed_name').value.trim()) ok = false;
         document.getElementById('incomplete').style.display = ok ? 'none' : '';
-        if (!ok) e.preventDefault();
+        return ok;
+    }
+
+    // oTree's own submit handler disables the button for 15 s on every submit,
+    // even one stopped here, so give it back when the form isn't sent.
+    function enableSign() {
+        setTimeout(function () { signButton.disabled = false; }, 0);
+    }
+
+    form.addEventListener('submit', function (e) {
+        if (!complete()) { e.preventDefault(); enableSign(); return; }
+        if (!copyEmail) return;
+        // hand the address to the server first; liveRecv then submits the form
+        e.preventDefault();
+        liveSend({copy_email: copyEmail.value});
     });
+
+    function liveRecv(resp) {
+        copyError.textContent = resp.error || '';
+        copyError.style.display = resp.ok ? 'none' : '';
+        if (!resp.ok) enableSign();
+        if (resp.ok) {
+            copyEmail.value = '';  // the laptop stays open for the next participant
+            form.submit();  // bypasses this listener
+        }
+    }
 </script>
-{{ endif }}
 {{ endblock }}
