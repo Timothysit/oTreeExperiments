@@ -7,14 +7,17 @@ from otree.api import *
 from mp_survey.payment_crypto import encrypt_details
 from pupil_bridge.context import pupil_bridge_enabled
 
-from . import emailer
+from . import emailer, form_text
+from .signed_form import render_signed_form
 
 
 doc = """
 Before the game: the Participant Information Sheet (InfoSheetText.html), with
 the option to have it emailed (see emailer.py; the address is then kept,
 encrypted, for mp_survey's payment form, so they aren't asked twice), then the
-Consent Form ticked and signed on screen. Session config consent_pages=False
+Consent Form ticked and signed on screen, with a PDF of the signed form emailed
+to them (signed_form.py, which also archives the forms from the export).
+Session config consent_pages=False
 skips the app (paper copies); digital_consent=False skips just the form.
 
 Signing needs PAYMENT_PUBLIC_KEY on the server: the typed name
@@ -26,7 +29,7 @@ export. The ticks themselves are Player fields, so e.g. consent to data sharing
 
 The PDFs in _static/consent/ (emailed to participants) are copies of the
 approved versions in JuliaAndTimHumanMP/ethics/. When the documents change,
-replace them and update InfoSheetText.html and C.STATEMENTS to match.
+replace them and update InfoSheetText.html and form_text.py to match.
 """
 
 
@@ -35,78 +38,19 @@ class C(BaseConstants):
     PLAYERS_PER_GROUP = None
     NUM_ROUNDS = 1
 
-    STUDY_TITLE = 'Decision-Making in a Dynamic Social Context'
-    ETHICS_ID = 'CEHP/2024/596'
+    STUDY_TITLE = form_text.STUDY_TITLE
+    ETHICS_ID = form_text.ETHICS_ID
     DOCS_DIR = Path(__file__).resolve().parent.parent / '_static' / 'consent'
     INFO_SHEET_PDF = 'consent/information_sheet.pdf'
     CONSENT_FORM_PDF = 'consent/consent_form.pdf'
     MAX_EMAILS = 3
 
-    # Consent form statements, worded as in consent_form_Tim.pdf. Each is a list
-    # of paragraphs; the lines starting with '- ' render as a list.
-    STATEMENTS = [
-        ['I confirm that I have read and understood the Information Sheet for the above study. I have had '
-         'an opportunity to consider the information and what will be expected of me. I have also had the '
-         'opportunity to ask questions which have been answered to my satisfaction.'],
-        ['I understand that my participation is voluntary and that I am free to withdraw at any time without '
-         'giving a reason, without the care I receive or my legal rights being affected.'],
-        ['I understand that I will be able to withdraw my anonymous data at any point in time up until the '
-         'publication of this data, and withdraw my personal information at any point without requiring a '
-         'reason.',
-         'I understand that if I decide to withdraw:',
-         '- Any personal data I have provided up to that point will be deleted unless I agree otherwise.',
-         '- Any published or pre-print (anonymous) data will remain available and open-access.'],
-        ['I consent to participate in the study. I understand that my personal information (name, email '
-         'address, gender, and date of birth) will be used for the purposes explained to me. I understand '
-         'that according to data protection legislation, public task will be the lawful basis for processing.'],
-        ['Use of the information',
-         'I understand that all personal information will remain confidential and that all efforts will be '
-         'made to ensure I cannot be identified (personal information that can be used to identify my data '
-         'will be protected and only accessible to researchers on the study, and stored for up to 10 years '
-         'after the completion of the project).'],
-        ['I understand that the data gathered in this study will be stored pseudonymously and securely. It '
-         'will be assigned a coded designation that will deprive the collected data of any connection to my '
-         'identity. It will not be possible to identify me in any publications or scientific communication, '
-         'where this data will be presented anonymously.'],
-        ['I understand the potential risks of participating and the support that will be available to me '
-         'should I become distressed during the course of the research.'],
-        ['I understand that the data will not be made available to any commercial organisations but is '
-         'solely the responsibility of the researcher(s) undertaking this study.'],
-        ['I understand that I will not benefit financially from this study or from any possible outcome it '
-         'may result in in the future.'],
-        ['I understand that I will be compensated for the portion of time spent in the study, with additional '
-         'compensation based on my performance, and will still be fully compensated if I later choose to '
-         'withdraw.'],
-        ['I agree that my pseudonymised research data may be used by others for future research. Only '
-         'researchers undertaking the current study will be able to identify me from this data, and no one '
-         'will be able to identify me from any published data. *Note, not agreeing to this will not preclude '
-         'you from taking part in this study'],
-        ['I hereby confirm that I understand the inclusion criteria as detailed in the Information Sheet and '
-         'explained to me by the researcher.'],
-        ['I hereby confirm that:',
-         '- (a) I understand the exclusion criteria as detailed in the Information Sheet and explained to me '
-         'by the researcher; and',
-         '- (b) I do not fall under the exclusion criteria.'],
-        ['I am aware of who I should contact if I wish to lodge a complaint.'],
-        ['I voluntarily agree to take part in this study.'],
-        ['Use of information for this project and beyond:',
-         'I agree that my personal information (name, date of birth, gender, and email) will be stored '
-         'securely in on UCL’s Data Safe Haven, for up to 10 years after the completion of this study, and '
-         'that only study researchers will be able to associate my person information with my data. I am '
-         'aware that no personal information will be included in any publication resulting from this study '
-         'or otherwise.',
-         'I would be happy for the data I provide to be securely archived at UCL until project completion.',
-         'I understand that other authenticated researchers working on this study at UCL will have access '
-         'to my pseudonymised data.'],
-    ]
-    OPTIONAL_STATEMENTS = [11]  # data sharing: "not agreeing to this will not preclude you"
-    FUTURE_CONTACT = [
-        'Yes, I would be happy to be contacted in this way',
-        'No, I would not like to be contacted',
-    ]
+    STATEMENTS = form_text.STATEMENTS
+    OPTIONAL_STATEMENTS = form_text.OPTIONAL_STATEMENTS
+    FUTURE_CONTACT = form_text.FUTURE_CONTACT
 
 
-STATEMENT_FIELDS = [f'consent_{i:02d}' for i in range(1, len(C.STATEMENTS) + 1)]
+STATEMENT_FIELDS = form_text.STATEMENT_FIELDS
 REQUIRED_STATEMENT_FIELDS = [
     f for i, f in enumerate(STATEMENT_FIELDS, start=1) if i not in C.OPTIONAL_STATEMENTS
 ]
@@ -226,11 +170,16 @@ def email_documents(player, data, settings=None, send=emailer.send_in_background
     )
     send(key, msg, settings)
     player.info_sheet_emails += 1
-    # so mp_survey's payment form needn't ask again; encrypted like the payment
-    # details, never kept in plain text
+    emailer.remember_address(key, address)  # offered again for the signed consent form
+    keep_email_for_payment(player, address)
+    return dict(status=emailer.SENDING)
+
+
+def keep_email_for_payment(player, address):
+    """So mp_survey's payment form needn't ask again: encrypted like the payment
+    details, never kept in plain text."""
     if consent_public_key():
         player.participant.vars['email_ciphertext'] = encrypt_details(dict(email=address), consent_public_key())
-    return dict(status=emailer.SENDING)
 
 
 # --- Signing the consent form -------------------------------------------------
@@ -250,13 +199,13 @@ def consent_errors(player, values):
 
 
 def save_consent(player):
-    """Encrypt the signed form into a ConsentRecord, then blank the name on the Player."""
+    """Encrypt the signed form into a ConsentRecord, then blank the name on the Player.
+    Returns the record (None if no name was typed: only possible in a test run)."""
     name = (player.field_maybe_none('signed_name') or '').strip()
     player.signed_name = ''
     player.consent_signed_at = time.time()
-    key = consent_public_key()
-    if not (name and key):  # only possible in a test run (see ConsentForm.error_message)
-        return
+    if not name:
+        return None
     record = dict(
         full_name=name,
         signed_at=time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(player.consent_signed_at)),
@@ -264,12 +213,59 @@ def save_consent(player):
         researcher=researcher_name(player),
         **{f: bool(player.field_maybe_none(f)) for f in STATEMENT_FIELDS},
     )
-    ConsentRecord.create(
-        player=player,
-        participant_code=player.participant.code,
-        ciphertext=encrypt_details(record, key),
-        submitted_at=player.consent_signed_at,
-    )
+    key = consent_public_key()
+    if key:  # always, except in a test run (see ConsentForm.error_message)
+        ConsentRecord.create(
+            player=player,
+            participant_code=player.participant.code,
+            ciphertext=encrypt_details(record, key),
+            submitted_at=player.consent_signed_at,
+        )
+    return record
+
+
+SIGNED_SUBJECT = f'Your signed consent form, "{C.STUDY_TITLE}"'
+SIGNED_BODY = f"""Hello,
+
+Thank you for taking part in the UCL study "{C.STUDY_TITLE}"
+(UCL Research Ethics Committee approval {C.ETHICS_ID}).
+
+Attached is a copy of the consent form you signed, and the Participant
+Information Sheet, for you to keep. The research team's contact details are
+in the Information Sheet.
+
+UCL Psychology and Language Sciences
+"""
+
+
+def copy_address(player, data):
+    """Live method of ConsentForm, sent as they press Sign: {'copy_email': ...}
+    ('' for no copy). The address is held in memory only, until before_next_page."""
+    key = player.participant.code
+    raw = str((data if isinstance(data, dict) else {}).get('copy_email') or '').strip()
+    if not raw:
+        emailer.forget_address(key)
+        return dict(ok=True)
+    address, error = emailer.clean_address(raw)
+    if error:
+        return dict(ok=False, error=error)
+    emailer.remember_address(key, address)
+    return dict(ok=True)
+
+
+def email_signed_copy(player, record, address, settings=None, send=emailer.send_in_background):
+    """Email the signed form (as a PDF) and the information sheet. Returns whether it was sent."""
+    settings = settings or emailer.smtp_settings()
+    if not (record and address and settings):
+        return False
+    code = player.participant.code
+    msg = emailer.build_message(address, settings, SIGNED_SUBJECT, SIGNED_BODY, [
+        ('signed_consent_form.pdf', render_signed_form(record, code)),
+        C.DOCS_DIR / 'information_sheet.pdf',
+    ])
+    send(f'{code}:signed', msg, settings)
+    keep_email_for_payment(player, address)
+    return True
 
 
 # PAGES
@@ -320,6 +316,8 @@ class ConsentForm(Page):
             statements=statements,
             today=time.strftime('%d %B %Y'),
             researcher=researcher_name(player),
+            can_email=emailer.smtp_settings() is not None,
+            copy_email=emailer.recall_address(player.participant.code),
             not_set_up=not consent_public_key(),
             test_run=is_test_run(player),
             consent_form_pdf=C.CONSENT_FORM_PDF,
@@ -332,8 +330,15 @@ class ConsentForm(Page):
         return consent_errors(player, values) or None
 
     @staticmethod
+    def live_method(player, data):
+        return {player.id_in_group: copy_address(player, data)}
+
+    @staticmethod
     def before_next_page(player, timeout_happened):
-        save_consent(player)
+        record = save_consent(player)
+        code = player.participant.code
+        email_signed_copy(player, record, emailer.recall_address(code))
+        emailer.forget_address(code)
 
 
 page_sequence = [InformationSheet, ConsentForm]

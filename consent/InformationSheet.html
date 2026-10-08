@@ -20,7 +20,8 @@
             {# no name attribute: the address is sent only via liveSend, never posted
                as an oTree form; kept only encrypted (see email_documents). autocomplete off: the laptops are shared. #}
             <p class="card-text">
-                Enter your email address and we will send you the information sheet and the consent form.
+                Enter your email address and we will send you the information sheet and the consent form{{ if digital_consent }},
+                and a copy of the consent form once you have signed it{{ endif }}.
                 {{ if keep_email }}We will also use it to arrange your payment, so you won't be asked for it again.
                 It is encrypted and kept separately from your answers.{{ else }}Your address is used only to send
                 this email; it is not saved.{{ endif }}

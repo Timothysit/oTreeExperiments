@@ -16,6 +16,10 @@ The recipient address is never stored in the oTree database or logged. Note
 that Gmail keeps a copy of every message sent via SMTP in the account's Sent
 folder, so clear that folder regularly.
 
+The address a participant gives on the information sheet page is also held in
+this process's memory (remember_address) for a few hours, so the consent page
+can offer to email the signed form to it; it never reaches the database.
+
 Sending runs in a background thread: a live method blocks the whole server
 while it runs, including the other laptop's game.
 
@@ -27,6 +31,7 @@ import re
 import smtplib
 import ssl
 import threading
+import time
 from email.message import EmailMessage
 from pathlib import Path
 
@@ -39,6 +44,9 @@ SENDING, SENT, FAILED = 'sending', 'sent', 'failed'
 # key -> SENDING / SENT / FAILED; in-process, so it only needs to outlive one
 # page view (Heroku runs one web process)
 _status = {}
+# key -> (address, time given); in-process only, see remember_address
+_addresses = {}
+ADDRESS_TTL = 3 * 3600
 _lock = threading.Lock()
 
 
@@ -66,7 +74,7 @@ def clean_address(raw):
 
 
 def build_message(to, settings, subject, body, attachments):
-    """attachments: paths of PDFs to attach under their file names."""
+    """attachments: PDFs, each a path (attached under its file name) or (file name, bytes)."""
     msg = EmailMessage()
     msg['From'] = settings['user']
     msg['To'] = to
@@ -74,9 +82,9 @@ def build_message(to, settings, subject, body, attachments):
         msg['Reply-To'] = settings['reply_to']
     msg['Subject'] = subject
     msg.set_content(body)
-    for path in attachments:
-        path = Path(path)
-        msg.add_attachment(path.read_bytes(), maintype='application', subtype='pdf', filename=path.name)
+    for item in attachments:
+        name, data = item if isinstance(item, tuple) else (Path(item).name, Path(item).read_bytes())
+        msg.add_attachment(data, maintype='application', subtype='pdf', filename=name)
     return msg
 
 
@@ -104,3 +112,24 @@ def send_in_background(key, msg, settings, send=_send):
 def status(key):
     with _lock:
         return _status.get(key)
+
+
+def remember_address(key, address, now=None):
+    now = time.time() if now is None else now
+    with _lock:
+        for k in [k for k, (_, t) in _addresses.items() if now - t > ADDRESS_TTL]:
+            del _addresses[k]
+        _addresses[key] = (address, now)
+
+
+def recall_address(key, now=None):
+    """The address remembered for key, or '' if none (or it has expired)."""
+    now = time.time() if now is None else now
+    with _lock:
+        address, t = _addresses.get(key, ('', 0))
+    return address if now - t <= ADDRESS_TTL else ''
+
+
+def forget_address(key):
+    with _lock:
+        _addresses.pop(key, None)
