@@ -1,0 +1,91 @@
+{{ block title }}Participant Information Sheet{{ endblock }}
+{{ block content }}
+
+    <p>
+        Before you decide whether to take part, please read the information sheet below carefully.
+        Ask the experimenter if anything is unclear.
+    </p>
+
+    <div class="border rounded p-4 mb-2">
+        {{ include_sibling 'InfoSheetText.html' }}
+    </div>
+    <p class="small text-muted">
+        <a href="{{ static info_sheet_pdf }}" target="_blank" rel="noopener">Information sheet as PDF</a>
+    </p>
+
+    <div class="card my-4">
+        <div class="card-body">
+            <h5 class="card-title">Keep a copy</h5>
+            {{ if can_email }}
+            {# no name attribute: the address is sent only via liveSend, never posted
+               as an oTree form; kept only encrypted (see email_documents). autocomplete off: the laptops are shared. #}
+            <p class="card-text">
+                Enter your email address and we will send you the information sheet and the consent form.
+                {{ if keep_email }}We will also use it to arrange your payment, so you won't be asked for it again.
+                It is encrypted and kept separately from your answers.{{ else }}Your address is used only to send
+                this email; it is not saved.{{ endif }}
+            </p>
+            <div class="input-group" style="max-width: 32rem;">
+                <input class="form-control" id="copy-email" type="email" autocomplete="off" maxlength="200"
+                       placeholder="you@example.com" aria-label="Email address">
+                <button type="button" class="btn btn-outline-primary" id="copy-send">Email me a copy</button>
+            </div>
+            <div class="form-text text-danger" id="copy-error"></div>
+            <div class="form-text" id="copy-status"></div>
+            {{ endif }}
+            <p class="card-text mt-2 mb-0">
+                {{ if can_email }}You can also{{ else }}You can{{ endif }}
+                ask the experimenter for a printed copy.
+            </p>
+        </div>
+    </div>
+
+    <button class="otree-btn-next btn btn-primary btn-lg">
+        I have read the information sheet{{ if digital_consent }}: continue to the consent form{{ endif }}
+    </button>
+
+{{ endblock }}
+
+{{ block scripts }}
+{{ if can_email }}
+<script>
+    const emailInput = document.getElementById('copy-email');
+    const sendButton = document.getElementById('copy-send');
+    const errorBox = document.getElementById('copy-error');
+    const statusBox = document.getElementById('copy-status');
+    let polls = 0;
+
+    function send() {
+        errorBox.textContent = '';
+        statusBox.textContent = '';
+        sendButton.disabled = true;
+        liveSend({email: emailInput.value});
+    }
+    sendButton.addEventListener('click', send);
+    // Enter in the address box sends the email instead of submitting the page
+    emailInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); send(); }
+    });
+
+    function liveRecv(resp) {
+        if (resp.error) {
+            sendButton.disabled = false;
+            errorBox.textContent = resp.error;
+        } else if (resp.status === 'sending') {
+            statusBox.textContent = 'Sending…';
+            if (polls++ < 30) setTimeout(function () { liveSend({check: true}); }, 2000);
+        } else if (resp.status === 'sent') {
+            statusBox.textContent = 'Sent. It should arrive within a few minutes (check your spam folder too).';
+            emailInput.value = '';  // the laptop stays open for the next participant
+            sendButton.disabled = false;
+            polls = 0;
+        } else {
+            statusBox.textContent = '';
+            errorBox.textContent = "Sorry, the email couldn't be sent. Please ask the experimenter for a printed copy.";
+            sendButton.disabled = false;
+            polls = 0;
+        }
+    }
+</script>
+{{ endif }}
+{{ endblock }}

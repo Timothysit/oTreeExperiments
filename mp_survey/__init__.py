@@ -17,7 +17,9 @@ last page, encrypted on the server with the public key in env var
 PAYMENT_PUBLIC_KEY, and stored as ciphertext only in the PaymentDetails table,
 which never appears in the research export (see payment_crypto.py for the
 payer's decrypt step). Without that key, the page falls back to linking an
-external payment form (session config `payment_form_url`).
+external payment form (session config `payment_form_url`). A participant who
+had the information sheet emailed to them (consent app) isn't asked for their
+email again: it was encrypted then, see email_on_file().
 
 Answer text matches the old Google Form, so old and new responses can be
 pooled. Exceptions: the interface-ease question is now single-choice (the Form's
@@ -327,10 +329,16 @@ def payment_public_key():
     return os.environ.get('PAYMENT_PUBLIC_KEY', '').strip()
 
 
+def email_on_file(player):
+    """The participant's email, encrypted with PAYMENT_PUBLIC_KEY when the consent
+    app emailed them the information sheet; '' if they weren't asked there."""
+    return player.participant.vars.get('email_ciphertext', '')
+
+
 def save_payment_details(player, data):
     """Live method of the Payment page: validate, encrypt, store. Replies with
     the field errors, or ok. Plain-text details are never stored or logged."""
-    details, errors = clean_details(data)
+    details, errors = clean_details(data, email_on_file=bool(email_on_file(player)))
     if errors:
         return dict(ok=False, errors=errors)
     PaymentDetails.create(
@@ -353,6 +361,7 @@ class Payment(Page):
         return dict(
             participant_code=player.participant.code,
             collect_payment_details=bool(payment_public_key()),
+            email_on_file=bool(email_on_file(player)),
             survey_optional=survey_optional(player),
             payment_form_url=payment_form_url(player),
         )
@@ -370,10 +379,13 @@ page_sequence = [AboutTheGame, PartsAndOpponent, StrategyAndExperience, AQ10, BI
 def custom_export(players):
     """Encrypted payment submissions, for payment_crypto.py's decrypt step.
     Ciphertext only: unreadable without the private key."""
-    yield ['session_code', 'participant_code', 'participant_label', 'test_run', 'submitted_at', 'ciphertext']
+    yield [
+        'session_code', 'participant_code', 'participant_label', 'test_run', 'submitted_at',
+        'ciphertext', 'email_ciphertext',
+    ]
     for p in players:
         for row in PaymentDetails.filter(player=p):
             yield [
                 p.session.code, row.participant_code, p.participant.label or '',
-                int(survey_optional(p)), row.submitted_at, row.ciphertext,
+                int(survey_optional(p)), row.submitted_at, row.ciphertext, email_on_file(p),
             ]

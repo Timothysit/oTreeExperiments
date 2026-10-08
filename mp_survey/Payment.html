@@ -25,7 +25,13 @@
             <input class="form-control" id="pay-full_name" autocomplete="off" maxlength="100">
             <div class="invalid-feedback" id="err-full_name"></div>
         </div>
-        <div class="mb-3">
+        {{ if email_on_file }}
+        <p id="email-on-file">
+            We'll contact you at the email address you gave at the start.
+            <a href="#" id="use-other-email">Use a different address</a>
+        </p>
+        {{ endif }}
+        <div class="mb-3" id="email-field" {{ if email_on_file }}style="display: none;"{{ endif }}>
             <label class="form-label" for="pay-email">Email address</label>
             <input class="form-control" id="pay-email" type="email" autocomplete="off" maxlength="200">
             <div class="invalid-feedback" id="err-email"></div>
@@ -69,6 +75,12 @@
 <script>
     const PAY_FIELDS = ['full_name', 'email', 'sort_code', 'account_number'];
     const payButton = document.getElementById('pay-submit');
+    const otherEmail = document.getElementById('use-other-email');
+    if (otherEmail) otherEmail.addEventListener('click', function (e) {
+        e.preventDefault();
+        document.getElementById('email-on-file').style.display = 'none';
+        document.getElementById('email-field').style.display = '';
+    });
 
     payButton.addEventListener('click', function () {
         const data = {};
