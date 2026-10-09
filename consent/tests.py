@@ -78,6 +78,7 @@ class PlayerBot(Bot):
         expect(record['consent_11'], False)
         expect(record['future_contact'], C.FUTURE_CONTACT[1])
         expect(record['researcher'], 'Timothy Sit')
+        expect(self.player.participant.vars['consent_ciphertext'], row.ciphertext)
         [header, exported] = list(custom_export([self.player]))
         expect(exported[header.index('ciphertext')], row.ciphertext)
         check_signed_copy(self.player, record)
