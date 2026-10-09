@@ -215,12 +215,16 @@ def save_consent(player):
     )
     key = consent_public_key()
     if key:  # always, except in a test run (see ConsentForm.error_message)
+        ciphertext = encrypt_details(record, key)
         ConsentRecord.create(
             player=player,
             participant_code=player.participant.code,
-            ciphertext=encrypt_details(record, key),
+            ciphertext=ciphertext,
             submitted_at=player.consent_signed_at,
         )
+        # for lab-notes, which archives the signed forms (REST get_session returns
+        # participant vars only); still ciphertext, like payment_ciphertext
+        player.participant.vars['consent_ciphertext'] = ciphertext
     return record
 
 
