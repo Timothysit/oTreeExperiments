@@ -86,6 +86,44 @@ with "Port 8765 is in use".
 The bridge must be run from this repository: an older copy elsewhere
 (e.g. `Documents\pupil_bridge`) is the previous version without these fixes.
 
+## Uploading to ogma (nightly)
+
+`upload_to_ogma.py` copies finished recordings and the bridge's logs to the
+lab's storage server and then deletes them from the laptop:
+
+| local | on ogma (`/ceph/ogma/delab/lab-members/Tim/human_mp/`) |
+|---|---|
+| `recordings\<date>_<label>_<code>\` | `experiment_data/<date>_<label>_<code>/` |
+| `pupil_bridge\logs\bridge_*.log`, `annotations_*.jsonl` | `experiment_data/pupil_bridge_logs/` |
+
+A local copy is deleted only once the SHA-256 of every one of its files matches
+the copy on ogma; anything else stays and is retried the next night, and a
+partly copied file is resumed. Only recordings with a label from
+`_rooms/mp_lab.txt` are uploaded: demo-link (`nolabel`) and test recordings, and
+the older `<YYYY_MM_DD>` folders, stay on the laptop. While Pupil Capture
+records, the upload stops (it checks before each file), and the logs the
+running bridge writes to are left for later. Each run's output goes to
+`pupil_bridge/logs/ogma_upload_*.log`.
+
+It connects through SWC's gateway `ssh.swc.ucl.ac.uk` (which mounts ogma) with
+the key `~/.ssh/id_ed25519_swc` and host `swc` from `~/.ssh/config`. To set up
+another laptop or user: create a key with
+`ssh-keygen -t ed25519 -f %USERPROFILE%\.ssh\id_ed25519_swc`, add a `Host swc`
+entry (`HostName ssh.swc.ucl.ac.uk`, `User`, `IdentityFile`), add the public key
+to `~/.ssh/authorized_keys` on the gateway, and check that
+`ssh -o BatchMode=yes swc hostname` works without a password. Then, with the
+`otree` environment's Python:
+
+```
+python pupil_bridge\upload_to_ogma.py --dry-run   # what would be copied
+python pupil_bridge\upload_to_ogma.py --install   # scheduled task, daily at 02:00
+```
+
+The task ("Pupil upload to ogma" in Task Scheduler) wakes the laptop, but runs
+only while you are logged in and the laptop is on mains power; a night it
+misses is caught up the next. `--remove` deletes the task, and running the
+script by hand (`--keep` to keep local copies) uploads at any time.
+
 ## Testing locally with the pupil sync test
 
 To try changes before they are on Heroku, run oTree on the headset laptop.
