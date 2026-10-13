@@ -49,6 +49,8 @@ RECORDING_NAME = re.compile(r"^\d{4}-\d{2}-\d{2}_(.+)_[^_]+$")  # see pupil_brid
 ROOM_LABELS = Path(__file__).resolve().parent.parent / "_rooms" / "mp_lab.txt"
 LOG_PATTERNS = ("bridge_*.log", "annotations_*.jsonl")
 MIN_AGE_S = 3600  # a recording untouched this long is finished
+PUT_ATTEMPTS = 4  # a dropped connection is retried, resuming the file
+RETRY_WAIT_S = 60
 
 TASK_NAME = "Pupil upload to ogma"
 TASK_TIME = "02:00"
@@ -161,7 +163,17 @@ def upload(remote, files, remote_dir, dry_run):
         size = path.stat().st_size
         resume = 0 < have.get(rel, 0) < size
         started = time.monotonic()
-        remote.put(path, f"{remote_dir}/{rel}", resume)
+        for attempt in range(1, PUT_ATTEMPTS + 1):
+            try:
+                if attempt > 1:  # carry on from what reached ogma
+                    resume = 0 < remote.sizes(remote_dir).get(rel, 0) < size
+                remote.put(path, f"{remote_dir}/{rel}", resume)
+                break
+            except RuntimeError as e:
+                if attempt == PUT_ATTEMPTS:
+                    raise
+                print(f"  {e}\n  retrying in {RETRY_WAIT_S} s", flush=True)
+                time.sleep(RETRY_WAIT_S)
         seconds = time.monotonic() - started
         print(f"  {'resumed' if resume else 'copied'} {rel} ({gb(size)}, "
               f"{size / 1e6 / max(seconds, 1e-3):.0f} MB/s)", flush=True)
