@@ -44,8 +44,23 @@
 
 <p id="disk-status">Checking disk space...</p>
 
+<input type="hidden" name="eye_tracking_skipped" id="eye-tracking-skipped" value="False">
 <button class="otree-btn-next btn btn-primary" id="continue">Eye cameras OK, continue</button>
 <button class="otree-btn-next btn btn-outline-danger" id="continue-anyway" hidden>Continue anyway</button>
+
+<div class="mt-5">
+  <button type="button" class="btn btn-link text-muted p-0" id="skip-show">
+    Eye tracking not possible (e.g. glasses)? Skip it for this participant...
+  </button>
+  <div id="skip-confirm" class="alert alert-warning mt-2" hidden>
+    <p class="mb-2">
+      The participant plays without eye tracking: nothing is recorded in Pupil Capture,
+      and the data marks this participant as <code>eye_tracking_skipped</code>.
+    </p>
+    <button type="button" class="btn btn-warning" id="skip-yes">Yes, skip eye tracking</button>
+    <button type="button" class="btn btn-outline-secondary" id="skip-cancel">Cancel</button>
+  </div>
+</div>
 
 <script src="{{ static 'pupil_bridge.js' }}"></script>
 <script>
@@ -160,6 +175,15 @@
       return;
     }
     startPupilCapture();
+  });
+
+  // Skipping takes two clicks, so a participant can't skip by accident
+  const skipConfirm = document.getElementById("skip-confirm");
+  document.getElementById("skip-show").addEventListener("click", () => { skipConfirm.hidden = false; });
+  document.getElementById("skip-cancel").addEventListener("click", () => { skipConfirm.hidden = true; });
+  document.getElementById("skip-yes").addEventListener("click", function () {
+    document.getElementById("eye-tracking-skipped").value = "True";
+    document.getElementById("form").submit();
   });
 
   startPupilCapture();
