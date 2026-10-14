@@ -304,6 +304,7 @@ class Bridge:
         self.sent = 0
         self.receive_fallbacks = 0
         self.latencies_ms = deque(maxlen=500)
+        self.page_failed = 0  # annotations the page last reported it couldn't send
         LOG_DIR.mkdir(exist_ok=True)
         self.log_path = LOG_DIR / f"annotations_{datetime.now():%Y-%m-%d_%H%M%S}.jsonl"
         self.lock = threading.Lock()
@@ -321,6 +322,12 @@ class Bridge:
             data = None
         if not isinstance(data, dict):
             return 400, {"error": "expected a JSON object"}
+        failed = data.get("failed_annotations", 0)
+        with self.lock:
+            changed, self.page_failed = failed != self.page_failed, failed
+        if changed and failed:
+            print(f"WARNING: the page reports {failed} annotations it could not send "
+                  f"since it loaded (participant {data.get('participant_code')})", flush=True)
         try:
             sent = self.pupil.time_and_publish(lambda t: build_annotation(dict(data), t))
         except PupilUnavailable as e:
@@ -456,6 +463,7 @@ class Bridge:
             "recording": self.pupil.recording,
             "last_error": self.pupil.last_error,
             "annotations_sent": self.sent,
+            "page_failed_annotations": self.page_failed,
             "receive_time_fallbacks": self.receive_fallbacks,
             "latency_ms_median": statistics.median(latencies) if latencies else None,
             "latency_ms_max": max(latencies) if latencies else None,
