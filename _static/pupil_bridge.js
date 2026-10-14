@@ -20,6 +20,7 @@
   let clockOffsetS = null;  // Pupil time (s) minus performance.now() (s)
   let clockRttMs = null;
   let syncTimer = null;
+  let failedAnnotations = 0;  // since this page loaded
 
   async function measureClockOffset() {
     let best = null;
@@ -164,18 +165,32 @@
       body.event_pupil_ts = eventTimeMs / 1000 + clockOffsetS;
       body.clock_sync_rtt_ms = clockRttMs;
     }
+    // the bridge warns once the page reports annotations it couldn't send
+    if (failedAnnotations > 0) body.failed_annotations = failedAnnotations;
+    const send = (keepalive) => fetch(baseUrl + "/annotation", {
+      method: "POST",
+      // text/plain keeps this a "simple" request (no CORS preflight round trip);
+      // the bridge parses the body as JSON regardless
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify(body),
+      // keepalive lets the request finish if the page navigates away right after
+      keepalive: keepalive,
+    });
     try {
-      const response = await fetch(baseUrl + "/annotation", {
-        method: "POST",
-        // text/plain keeps this a "simple" request (no CORS preflight round trip);
-        // the bridge parses the body as JSON regardless
-        headers: { "Content-Type": "text/plain" },
-        body: JSON.stringify(body),
-        // lets the request finish if the page navigates away right after
-        keepalive: true,
-      });
+      let response;
+      try {
+        response = await send(true);
+      } catch (err) {
+        // Chrome refuses keepalive requests beyond 64 KB of bodies in flight
+        response = await send(false);
+      }
+      // Chrome counts a keepalive request's body against that 64 KB until its
+      // response is read: unread, annotations stopped after ~180 per page
+      await response.text();
+      if (!response.ok) failedAnnotations++;
       return response.ok;
     } catch (err) {
+      failedAnnotations++;
       console.log("Pupil bridge unavailable", err);
       return false;
     }
@@ -191,5 +206,6 @@
     diskSpace,
     launchBridge,
     isEnabled: () => enabled,
+    failedAnnotations: () => failedAnnotations,
   };
 })();
