@@ -720,6 +720,15 @@ def live_game_with_progress(player: Player, data):
     return reply
 
 
+def live_eye_check(player: Player, data):
+    """EyeCheck's "Skip it for this participant" (e.g. glasses). Kept in participant.vars,
+    not a model field: a new column would need `otree resetdb` on Heroku. Read by
+    pupil_bridge_enabled, so the later pages leave the bridge alone."""
+    if data.get("skip_eye_tracking"):
+        player.participant.vars["eye_tracking_skipped"] = True
+        return {player.id_in_group: dict(skipped=True)}
+
+
 class EyeCheck(Page):
     """Experimenter page on the headset laptop: starts Pupil Capture and shows live
     pupil confidence per eye, to adjust the eye cameras before the game."""
@@ -727,6 +736,8 @@ class EyeCheck(Page):
     @staticmethod
     def is_displayed(player):
         return pupil_bridge_enabled(player)
+
+    live_method = live_eye_check
 
     @staticmethod
     def js_vars(player):

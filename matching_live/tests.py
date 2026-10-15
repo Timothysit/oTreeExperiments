@@ -26,6 +26,7 @@ class PlayerBot(Bot):
     def play_round(self):
         if pupil_bridge_enabled(self.player):  # bots have no room label, so always
             yield EyeCheck
+            expect(pupil_bridge_enabled(self.player), True)
         if opponents_preset(self.session):
             # no Setup page; bots have no room labels, so both fall back to "random"
             expect(self.group.single_opponent_p1_final in ("algo_A", "algo_B"), True)
