@@ -47,6 +47,20 @@
 <button class="otree-btn-next btn btn-primary" id="continue">Eye cameras OK, continue</button>
 <button class="otree-btn-next btn btn-outline-danger" id="continue-anyway" hidden>Continue anyway</button>
 
+<div class="mt-5">
+  <button type="button" class="btn btn-link text-muted p-0" id="skip-show">
+    Eye tracking not possible (e.g. glasses)? Skip it for this participant...
+  </button>
+  <div id="skip-confirm" class="alert alert-warning mt-2" hidden>
+    <p class="mb-2">
+      The participant plays without eye tracking: nothing is recorded in Pupil Capture,
+      and the participant is marked <code>eye_tracking_skipped</code> in oTree.
+    </p>
+    <button type="button" class="btn btn-warning" id="skip-yes">Yes, skip eye tracking</button>
+    <button type="button" class="btn btn-outline-secondary" id="skip-cancel">Cancel</button>
+  </div>
+</div>
+
 <script src="{{ static 'pupil_bridge.js' }}"></script>
 <script>
   PupilBridge.init({ ...js_vars.pupil, syncClock: false });
@@ -161,6 +175,19 @@
     }
     startPupilCapture();
   });
+
+  // Skipping takes two clicks, so a participant can't skip by accident
+  const skipConfirm = document.getElementById("skip-confirm");
+  document.getElementById("skip-show").addEventListener("click", () => { skipConfirm.hidden = false; });
+  document.getElementById("skip-cancel").addEventListener("click", () => { skipConfirm.hidden = true; });
+  document.getElementById("skip-yes").addEventListener("click", function () {
+    this.disabled = true;
+    liveSend({ skip_eye_tracking: true });
+  });
+  // the server has recorded the skip: move on
+  function liveRecv(data) {
+    if (data.skipped) document.getElementById("form").submit();
+  }
 
   startPupilCapture();
 </script>
