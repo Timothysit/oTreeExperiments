@@ -214,8 +214,6 @@ class Player(BasePlayer):
     last_reward = models.IntegerField(initial=0)
     last_rt_ms = models.IntegerField(initial=0)
     part1_points = models.IntegerField(initial=0)
-    # set on the eye tracker check page, e.g. for glasses: no recording, no annotations
-    eye_tracking_skipped = models.BooleanField(initial=False)
 
 
 class CursorTrace(ExtraModel):
@@ -725,17 +723,10 @@ def live_game_with_progress(player: Player, data):
 class EyeCheck(Page):
     """Experimenter page on the headset laptop: starts Pupil Capture and shows live
     pupil confidence per eye, to adjust the eye cameras before the game."""
-    form_model = "player"
-    form_fields = ["eye_tracking_skipped"]
 
     @staticmethod
     def is_displayed(player):
         return pupil_bridge_enabled(player)
-
-    @staticmethod
-    def before_next_page(player, timeout_happened):
-        # read by pupil_bridge_enabled: the later pages leave the bridge alone
-        player.participant.vars["eye_tracking_skipped"] = player.eye_tracking_skipped
 
     @staticmethod
     def js_vars(player):

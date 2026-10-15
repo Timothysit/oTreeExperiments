@@ -7,12 +7,9 @@ def pupil_bridge_enabled(player):
     Only laptops listed in the session config's `pupil_bridge_labels`
     (comma-separated room labels) do, so a laptop without a headset never tries
     to reach a local address. Participants without a label (e.g. demo links)
-    always do. Not once the experimenter skipped eye tracking for the participant
-    (e.g. glasses, on matching_live's eye tracker check page).
+    always do.
     """
     participant = player.participant
-    if participant.vars.get("eye_tracking_skipped"):
-        return False
     labels = player.session.config.get("pupil_bridge_labels", "")
     allowed = {s.strip() for s in labels.split(",") if s.strip()}
     return not participant.label or participant.label in allowed

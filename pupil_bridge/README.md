@@ -28,10 +28,6 @@ background. For a `matching_live` session:
    Recorder folder, read from Pupil Capture's saved settings). Below the session
    config's `pupil_min_free_gb` (default 35 GB; a full session recorded 21–28 GB)
    the line turns red and only **Continue anyway** is offered.
-   If eye tracking can't work for this participant (e.g. glasses), click **Eye
-   tracking not possible? Skip it for this participant...** and confirm: the
-   game then starts without a recording or annotations, and the participant's
-   `eye_tracking_skipped` field is set in the data.
 3. The participant's **Click anywhere to begin** starts the recording. The bridge
    checks that both eye cameras deliver pupil data and starts a recording named
    `<date>_<room label>_<participant code>`,
